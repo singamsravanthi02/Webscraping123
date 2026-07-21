@@ -4,6 +4,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB
 import enum
 from app.db.base import Base, AuditMixin
+from app.domain.users.models import User
 
 class NotificationChannel(str, enum.Enum):
     IN_APP = "in_app"
@@ -46,4 +47,4 @@ class NotificationLog(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     sent_at = Column(DateTime(timezone=True), nullable=True)
 
-    user = relationship("User")
+    user = relationship(User)

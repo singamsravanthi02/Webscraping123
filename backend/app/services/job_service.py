@@ -3,8 +3,6 @@ from fastapi import HTTPException
 from app.domain.jobs.models import Job, JobBookmark, JobStatus
 from app.domain.users.models import User
 from typing import List
-import random # For dummy match score fallback
-from app.domain.ai_orchestration.agents.jobs import JobMatchingAgent
 
 class JobService:
     def __init__(self, db: Session):

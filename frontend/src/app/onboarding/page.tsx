@@ -230,6 +230,17 @@ export default function OnboardingPage() {
         }
       );
 
+      const profileRes = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/users/me`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      if (profileRes.ok) {
+        const profile = await profileRes.json();
+        useAuthStore.getState().setAuth(profile, token || "");
+      }
+
       toast.success("Profile completed successfully! Welcome to Sreyas Platform.");
       // Small delay for backend processing
       setTimeout(() => router.push("/dashboard"), 1000);

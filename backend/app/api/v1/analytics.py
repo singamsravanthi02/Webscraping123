@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from statistics import fmean
@@ -23,6 +24,7 @@ from app.domain.notifications.models import NotificationLog, NotificationStatus
 from app.domain.users.models import User, UserRole, UserSession
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _today_utc() -> datetime:
@@ -126,7 +128,12 @@ def analytics_overview(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    student_memory = db.query(StudentAIMemory).filter(StudentAIMemory.user_id == current_user.id).first()
+    try:
+        student_memory = db.query(StudentAIMemory).filter(StudentAIMemory.user_id == current_user.id).first()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("Student analytics memory unavailable for user %s: %s", current_user.id, exc)
+        student_memory = None
     resume_analysis = student_memory.resume_analysis if student_memory and student_memory.resume_analysis else {}
     test_performance = student_memory.test_performance if student_memory and student_memory.test_performance else {}
     strong_topics = list(student_memory.strong_topics or []) if student_memory else []
@@ -154,9 +161,13 @@ def analytics_overview(
     student_events.extend(
         [row.created_at for row in db.query(LearningMessage).join(LearningSession).filter(LearningSession.user_id == current_user.id).all() if row.created_at]
     )
-    student_events.extend(
-        [row.created_at for row in db.query(AITokenUsageLog).filter(AITokenUsageLog.user_id == current_user.id).all() if row.created_at]
-    )
+    try:
+        student_events.extend(
+            [row.created_at for row in db.query(AITokenUsageLog).filter(AITokenUsageLog.user_id == current_user.id).all() if row.created_at]
+        )
+    except Exception as exc:
+        db.rollback()
+        logger.warning("AI token usage history unavailable for user %s: %s", current_user.id, exc)
 
     student_test_data = []
     if isinstance(test_performance, dict):
@@ -274,7 +285,12 @@ def analytics_overview(
     }
 
     active_users = db.query(User).filter(User.is_active == True).count()
-    token_logs = db.query(AITokenUsageLog).all()
+    try:
+        token_logs = db.query(AITokenUsageLog).all()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("AI token usage summary unavailable: %s", exc)
+        token_logs = []
     token_log_counts = [row.created_at for row in token_logs if row.created_at]
     assessment_count = (
         db.query(AssessmentAttempt)

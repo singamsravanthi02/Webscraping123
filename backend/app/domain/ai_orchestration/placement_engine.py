@@ -42,10 +42,23 @@ class PlacementReadinessEngine:
                 grades = [i.get("overall_grade", 0) * 10 for i in interviews]
                 int_score = sum(grades) / len(grades)
                 
-            # 3. Resume Quality (Assuming stored in a generic dict or defaulted)
-            # Placeholder for resume score 0-100
-            resume_score = 75.0 
-            
+            # 3. Resume Quality from the stored AI resume analysis
+            resume_analysis = memory.resume_analysis or {}
+            resume_score = float(resume_analysis.get("overall_score") or 0.0)
+            if not resume_score:
+                skills = resume_analysis.get("technical_skills") or []
+                projects = resume_analysis.get("projects") or []
+                years = float(resume_analysis.get("years_of_experience") or 0.0)
+                education_bonus = 0.0
+                education_level = str(resume_analysis.get("education_level") or "").lower()
+                if any(level in education_level for level in ("phd", "doctor")):
+                    education_bonus = 20.0
+                elif any(level in education_level for level in ("masters", "mtech", "msc", "mba")):
+                    education_bonus = 15.0
+                elif any(level in education_level for level in ("bachelor", "btech", "be", "b.sc", "bsc")):
+                    education_bonus = 10.0
+                resume_score = min(100.0, (len(skills) * 4.0) + (len(projects) * 6.0) + (years * 10.0) + education_bonus)
+                
             # 4. Learning Engagement (Proxy: number of strong topics vs weak)
             strong_count = len(memory.strong_topics)
             weak_count = len(memory.weak_topics)

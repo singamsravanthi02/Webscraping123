@@ -9,15 +9,15 @@ logger = logging.getLogger(__name__)
 class BaseEmailService(ABC):
     @abstractmethod
     def send_welcome_email(self, email: str, full_name: str) -> None:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def send_password_reset_email(self, email: str, reset_token: str) -> None:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def send_otp_email(self, email: str, otp: str) -> None:
-        pass
+        raise NotImplementedError
 
 class ConsoleEmailService(BaseEmailService):
     """A dummy email service that prints to console for development or fallback."""

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.jobs.schemas import JobResponse
 
@@ -31,6 +31,8 @@ class RefreshResponse(BaseModel):
 
 
 class JobSearchHistoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     query_text: str
     filters: Dict[str, Any]
@@ -39,11 +41,9 @@ class JobSearchHistoryResponse(BaseModel):
     used_queries: List[str]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
-
 class StudentSearchProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: int
     preferred_roles: List[str]
@@ -59,11 +59,9 @@ class StudentSearchProfileResponse(BaseModel):
     profile_hash: Optional[str] = None
     last_generated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
-
 class AIJobQueryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     query_text: str
     query_payload: Dict[str, Any]
@@ -72,43 +70,37 @@ class AIJobQueryResponse(BaseModel):
     cache_key: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
-
 class JobRankingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: Optional[int] = None
     job_id: Optional[int] = None
     query_id: Optional[int] = None
     rank_score: int
     reason: Optional[str] = None
-    missing_skills: List[str] = []
-    suggested_improvements: List[str] = []
-    learning_recommendations: List[str] = []
+    missing_skills: List[str] = Field(default_factory=list)
+    suggested_improvements: List[str] = Field(default_factory=list)
+    learning_recommendations: List[str] = Field(default_factory=list)
     expected_difficulty: Optional[str] = None
     ai_recommendation: Optional[str] = None
     rank_index: Optional[int] = None
     refreshed_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
-
 class AIJobDiscoveryResponse(BaseModel):
     profile: Optional[StudentSearchProfileResponse] = None
-    queries: List[str] = []
-    rankings: List[JobRankingResponse] = []
-    jobs: List[JobResponse] = []
-    metadata: Dict[str, Any] = {}
+    queries: List[str] = Field(default_factory=list)
+    rankings: List[JobRankingResponse] = Field(default_factory=list)
+    jobs: List[JobResponse] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class AIChatResponse(BaseModel):
     assistant_message: str
-    queries: List[str] = []
-    jobs: List[JobResponse] = []
-    rankings: List[JobRankingResponse] = []
+    queries: List[str] = Field(default_factory=list)
+    jobs: List[JobResponse] = Field(default_factory=list)
+    rankings: List[JobRankingResponse] = Field(default_factory=list)
     profile: Optional[StudentSearchProfileResponse] = None
-    metadata: Dict[str, Any] = {}
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class JobApplyRequest(BaseModel):
@@ -121,4 +113,4 @@ class JobActionResponse(BaseModel):
     message: str
     job_id: int
     status: str
-    details: Dict[str, Any] = {}
+    details: Dict[str, Any] = Field(default_factory=dict)

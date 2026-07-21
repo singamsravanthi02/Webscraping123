@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List
 import os
+import logging
 
 from app.db.session import get_db
 from app.api.dependencies.auth import get_current_active_user
@@ -12,6 +13,8 @@ from app.domain.learning.services.qdrant_service import ingest_document
 from app.domain.ai_orchestration.models import StudentAIMemory
 from app.domain.ai_orchestration.placement_engine import placement_engine
 import json
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -87,7 +90,7 @@ async def chat(id: int, request: schemas.ChatMessageRequest, current_user: User 
             memory.learning_history = curr_learning
             db.commit()
     except Exception as e:
-        pass # Ignore parse errors for memory
+        logger.debug("Ignoring learning memory parse error: %s", e)
         
     return ai_msg
 

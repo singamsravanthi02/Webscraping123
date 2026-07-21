@@ -12,22 +12,22 @@ class BaseKnowledgeAdapter(ABC):
     @abstractmethod
     def discover(self) -> List[str]:
         """Finds all URLs or entry points to process."""
-        pass
+        raise NotImplementedError
         
     @abstractmethod
     def fetch(self, url: str) -> str:
         """Fetches raw content from a given URL."""
-        pass
+        raise NotImplementedError
         
     @abstractmethod
     def clean(self, raw_content: str) -> str:
         """Removes boilerplate, HTML tags, and normalizes text."""
-        pass
+        raise NotImplementedError
         
     @abstractmethod
     def extract_metadata(self, url: str, raw_content: str) -> Dict[str, Any]:
         """Extracts title, department, etc."""
-        pass
+        raise NotImplementedError
         
     def sync(self) -> List[Dict[str, Any]]:
         """

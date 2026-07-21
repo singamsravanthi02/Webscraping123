@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     GEMINI_MODEL_FLASH: str = "gemini-2.5-flash"
     GEMINI_MODEL_PRO: str = "gemini-2.5-pro"
     GEMINI_MODEL_FLASH_LITE: str = "gemini-flash-lite-latest"
+    AI_PROVIDER: str = "AUTO"
+    NVIDIA_API_KEY: Optional[str] = None
+    NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    NVIDIA_MODEL: str = "z-ai/glm-5.2"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_PREFERRED_MODELS: str = "mistral,llama3.2"
     AI_REQUEST_TIMEOUT_SECONDS: int = 60
     AI_RETRY_ATTEMPTS: int = 2
     AI_CACHE_TTL_SECONDS: int = 300

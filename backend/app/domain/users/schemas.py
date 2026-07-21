@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator, model_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from .models import UserRole
@@ -7,6 +7,8 @@ import re
 # -- Shared & Base Schemas --
 
 class UserBase(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     email: EmailStr
     full_name: str
     phone: Optional[str] = None
@@ -18,7 +20,7 @@ class UserBase(BaseModel):
     branch: Optional[str] = None
     semester: Optional[int] = None
     cgpa: Optional[float] = None
-    skills: List[str] = []
+    skills: List[str] = Field(default_factory=list)
     career_goal: Optional[str] = None
 
     # Uploads & Links
@@ -39,8 +41,26 @@ class UserCreate(UserBase):
     confirm_password: str
     terms_accepted: bool = Field(..., description="Must accept terms and conditions")
 
-    @validator('password')
-    def validate_password_strength(cls, v):
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, v: str):
+        return _validate_password_strength(v)
+
+    @field_validator("terms_accepted")
+    @classmethod
+    def terms_must_be_true(cls, v: bool):
+        if not v:
+            raise ValueError("Terms must be accepted")
+        return v
+
+    @model_validator(mode="after")
+    def passwords_match(self):
+        if self.confirm_password != self.password:
+            raise ValueError("Passwords do not match")
+        return self
+
+
+def _validate_password_strength(v: str) -> str:
         if not re.search(r'[A-Z]', v):
             raise ValueError('Password must contain at least one uppercase letter')
         if not re.search(r'[a-z]', v):
@@ -49,18 +69,6 @@ class UserCreate(UserBase):
             raise ValueError('Password must contain at least one number')
         if not re.search(r'[^A-Za-z0-9]', v):
             raise ValueError('Password must contain at least one special character')
-        return v
-
-    @validator('confirm_password')
-    def passwords_match(cls, v, values, **kwargs):
-        if 'password' in values and v != values['password']:
-            raise ValueError('Passwords do not match')
-        return v
-        
-    @validator('terms_accepted')
-    def terms_must_be_true(cls, v):
-        if not v:
-            raise ValueError('Terms must be accepted')
         return v
 
 class UserLogin(BaseModel):
@@ -90,46 +98,32 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=12)
     confirm_password: Optional[str] = None
 
-    @validator('new_password')
-    def validate_password_strength(cls, v):
-        if not re.search(r'[A-Z]', v):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not re.search(r'[a-z]', v):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not re.search(r'[0-9]', v):
-            raise ValueError('Password must contain at least one number')
-        if not re.search(r'[^A-Za-z0-9]', v):
-            raise ValueError('Password must contain at least one special character')
-        return v
+    @field_validator("new_password")
+    @classmethod
+    def validate_password_strength(cls, v: str):
+        return _validate_password_strength(v)
 
-    @validator('confirm_password')
-    def passwords_match(cls, v, values, **kwargs):
-        if v is not None and 'new_password' in values and v != values['new_password']:
-            raise ValueError('Passwords do not match')
-        return v
+    @model_validator(mode="after")
+    def passwords_match(self):
+        if self.confirm_password is not None and self.confirm_password != self.new_password:
+            raise ValueError("Passwords do not match")
+        return self
 
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(..., min_length=1)
     new_password: str = Field(..., min_length=12)
     confirm_password: str
 
-    @validator('new_password')
-    def validate_password_strength(cls, v):
-        if not re.search(r'[A-Z]', v):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not re.search(r'[a-z]', v):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not re.search(r'[0-9]', v):
-            raise ValueError('Password must contain at least one number')
-        if not re.search(r'[^A-Za-z0-9]', v):
-            raise ValueError('Password must contain at least one special character')
-        return v
+    @field_validator("new_password")
+    @classmethod
+    def validate_password_strength(cls, v: str):
+        return _validate_password_strength(v)
 
-    @validator('confirm_password')
-    def passwords_match(cls, v, values, **kwargs):
-        if 'new_password' in values and v != values['new_password']:
-            raise ValueError('Passwords do not match')
-        return v
+    @model_validator(mode="after")
+    def passwords_match(self):
+        if self.confirm_password != self.new_password:
+            raise ValueError("Passwords do not match")
+        return self
 
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = None
@@ -156,9 +150,6 @@ class UserResponse(UserBase):
     profile_data: Dict[str, Any]
     created_at: datetime
     last_login: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 class SuccessResponse(BaseModel):
     message: str

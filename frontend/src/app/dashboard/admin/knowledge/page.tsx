@@ -1,12 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Upload, BookOpen, Database, RefreshCw, FileText, Layers, CheckCircle, AlertCircle } from "lucide-react";
 
 export default function KnowledgeAdminDashboard() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
+  const [documents, setDocuments] = useState<Array<{ id: number; title: string; status: string; source: string }>>([]);
+
+  useEffect(() => {
+    const loadDocuments = async () => {
+      try {
+        const token = localStorage.getItem("accessToken");
+        const res = await fetch("http://localhost:8000/api/v1/knowledge/status", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setDocuments(Array.isArray(data) ? data : []);
+      } catch {
+        setDocuments([]);
+      }
+    };
+
+    loadDocuments();
+  }, []);
+
+  const completedCount = documents.filter((doc) => doc.status === "completed").length;
+  const processingCount = documents.filter((doc) => doc.status === "pending" || doc.status === "processing").length;
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,7 +40,7 @@ export default function KnowledgeAdminDashboard() {
     formData.append("title", file.name);
 
     try {
-      const token = localStorage.getItem("spip_token");
+      const token = localStorage.getItem("accessToken");
       const res = await fetch("http://localhost:8000/api/v1/knowledge/upload", {
         method: "POST",
         headers: {
@@ -59,8 +81,8 @@ export default function KnowledgeAdminDashboard() {
             <Database className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm text-slate-500 font-medium">Qdrant Vectors</p>
-            <p className="text-2xl font-bold">14,235</p>
+            <p className="text-sm text-slate-500 font-medium">Total Documents</p>
+            <p className="text-2xl font-bold">{documents.length}</p>
           </div>
         </div>
         
@@ -69,8 +91,8 @@ export default function KnowledgeAdminDashboard() {
             <Layers className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm text-slate-500 font-medium">Generated Questions</p>
-            <p className="text-2xl font-bold">2,850</p>
+            <p className="text-sm text-slate-500 font-medium">Completed</p>
+            <p className="text-2xl font-bold">{completedCount}</p>
           </div>
         </div>
         
@@ -79,8 +101,8 @@ export default function KnowledgeAdminDashboard() {
             <RefreshCw className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm text-slate-500 font-medium">Processing Queue</p>
-            <p className="text-2xl font-bold">0</p>
+            <p className="text-sm text-slate-500 font-medium">Processing</p>
+            <p className="text-2xl font-bold">{processingCount}</p>
           </div>
         </div>
       </div>
@@ -142,24 +164,20 @@ export default function KnowledgeAdminDashboard() {
           <h2 className="text-xl font-bold mb-4">Recent Ingestions</h2>
           
           <div className="space-y-3">
-            {[
-              { title: "JNTUH R22 CSE Syllabus.pdf", status: "COMPLETED", chunks: 142 },
-              { title: "Data_Structures_Notes.docx", status: "COMPLETED", chunks: 85 },
-              { title: "TCS_NQT_Previous_Papers.pdf", status: "PROCESSING", chunks: 0 },
-            ].map((doc, idx) => (
-              <div key={idx} className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-slate-100 transition-colors">
+            {(documents.slice(0, 3)).map((doc) => (
+              <div key={doc.id} className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-slate-100 transition-colors">
                 <div className="flex items-center gap-3">
                   <FileText className="w-8 h-8 text-slate-400" />
                   <div>
                     <p className="font-medium text-sm text-slate-900">{doc.title}</p>
-                    <p className="text-xs text-slate-500">{doc.chunks} chunks • Auto-generated 12 MCQs</p>
+                    <p className="text-xs text-slate-500">Source: {doc.source}</p>
                   </div>
                 </div>
                 <div>
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    doc.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                    doc.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
                   }`}>
-                    {doc.status}
+                    {doc.status.toUpperCase()}
                   </span>
                 </div>
               </div>

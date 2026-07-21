@@ -4,6 +4,8 @@ from typing import Dict, Any
 from app.domain.ai_orchestration.gateway import AIGateway, gateway
 from app.domain.ai_orchestration.prompts import job_extraction_prompt
 from app.domain.ai_orchestration.schemas import JobExtractionSchema
+from app.domain.learning.services.qdrant_service import COLLECTION_NAME, _ensure_collection, qdrant_client
+from qdrant_client.http.models import PointStruct
 
 logger = logging.getLogger(__name__)
 
@@ -57,4 +59,22 @@ class AIPipeline:
         Pushes the embedding to Qdrant for semantic matching.
         """
         logger.info(f"Upserting job {job_id} to Qdrant")
-        pass
+        try:
+            _ensure_collection()
+            qdrant_client.upsert(
+                collection_name=COLLECTION_NAME,
+                points=[
+                    PointStruct(
+                        id=int(job_id),
+                        vector=embedding,
+                        payload={
+                            **metadata,
+                            "resource_type": "job",
+                        },
+                    )
+                ],
+            )
+            return True
+        except Exception as exc:
+            logger.error("Failed to upsert job %s to Qdrant: %s", job_id, exc)
+            return False

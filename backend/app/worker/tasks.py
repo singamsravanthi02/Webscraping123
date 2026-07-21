@@ -65,15 +65,69 @@ def dispatch_notification_task(self, log_id: int):
 
 @celery_app.task(name="app.worker.tasks.send_email")
 def send_email_task(email_address: str, template: str, context: dict):
-    # To be implemented
-    logger.info(f"Sending {template} email to {email_address}")
-    pass
+    from app.services.email_service import email_service
+
+    payload = context or {}
+    logger.info("Sending %s email to %s", template, email_address)
+
+    if template in {"welcome", "send_welcome_email"}:
+        email_service.send_welcome_email(email_address, payload.get("full_name", "there"))
+        return True
+    if template in {"password_reset", "reset_password", "send_password_reset_email"}:
+        token = payload.get("reset_token") or payload.get("otp") or payload.get("token")
+        if token:
+            email_service.send_password_reset_email(email_address, str(token))
+            return True
+    if template in {"otp", "verification", "send_otp_email"}:
+        otp = payload.get("otp") or payload.get("token")
+        if otp:
+            email_service.send_otp_email(email_address, str(otp))
+            return True
+
+    logger.warning("Unsupported email template %s for %s", template, email_address)
+    return False
 
 @celery_app.task(name="app.worker.tasks.generate_embeddings")
 def generate_embeddings_task(resource_id: str, resource_type: str):
-    # To be implemented
-    logger.info(f"Generating embeddings for {resource_type} {resource_id}")
-    pass
+    from app.db.session import SessionLocal
+    from app.domain.ai_orchestration.gateway import gateway
+    from app.domain.jobs.models import Job
+    from app.worker.ai_pipeline import AIPipeline
+
+    logger.info("Generating embeddings for %s %s", resource_type, resource_id)
+
+    if resource_type.lower() != "job":
+        logger.warning("Embedding task only supports job resources for now: %s", resource_type)
+        return False
+
+    db: Session = SessionLocal()
+    try:
+        job = db.query(Job).filter(Job.id == int(resource_id)).first()
+        if not job:
+            logger.warning("Job %s not found for embedding generation", resource_id)
+            return False
+
+        text = " ".join(part for part in [job.title, job.company, job.location or "", job.raw_description or ""] if part).strip()
+        if not text:
+            logger.warning("Job %s has no text to embed", resource_id)
+            return False
+
+        embedding = gateway.embed_text(text, feature="job_embedding")
+        pipeline = AIPipeline()
+        metadata = {
+            "job_id": job.id,
+            "title": job.title,
+            "company": job.company,
+            "location": job.location,
+            "source": getattr(job.source, "value", job.source),
+        }
+        pipeline.upsert_to_qdrant(job.id, embedding, metadata)
+        return True
+    except Exception as exc:
+        logger.error("Failed to generate embeddings for %s %s: %s", resource_type, resource_id, exc)
+        return False
+    finally:
+        db.close()
 
 @celery_app.task(name="app.worker.tasks.process_knowledge_document")
 def process_knowledge_document(document_id: int, file_path: str):
@@ -424,7 +478,7 @@ def aggregate_and_process_jobs_task():
                         if rj.get("posted_date"):
                             p_date = parser.parse(str(rj["posted_date"]))
                     except Exception:
-                        pass
+                        logger.debug("Skipping invalid job posted_date for %s", ext_id)
                         
                     # Extract skills via LLM
                     ai_data = pipeline.extract_job_details(rj["raw_description"])

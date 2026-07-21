@@ -14,7 +14,10 @@ logger = logging.getLogger(__name__)
 COLLECTION_NAME = "learning_materials"
 EMBEDDING_DIMENSION = 3072
 
-qdrant_client = QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
+qdrant_client = QdrantClient(
+    url=settings.QDRANT_URL,
+    api_key=settings.QDRANT_API_KEY if settings.QDRANT_URL.startswith("https://") else None,
+)
 
 
 def _ensure_collection() -> None:

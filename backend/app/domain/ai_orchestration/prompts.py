@@ -11,6 +11,7 @@ PROMPT_VERSION_INTERVIEW_EVAL = "ai-interview-eval-v1"
 PROMPT_VERSION_RAG = "ai-rag-v1"
 PROMPT_VERSION_STUDY_MATERIAL = "ai-study-material-v1"
 PROMPT_VERSION_QUESTION_GENERATION = "ai-question-generation-v1"
+PROMPT_VERSION_ASSESSMENT_QUESTION_GENERATION = "ai-assessment-question-generation-v1"
 PROMPT_VERSION_CONTENT_GENERATION = "ai-content-generation-v1"
 PROMPT_VERSION_JSON_REPAIR = "ai-json-repair-v1"
 
@@ -275,6 +276,52 @@ def question_generation_prompt(context_text: str, document_metadata: Dict[str, A
         '- Output strictly as a valid JSON object with a single top-level "questions" array. DO NOT wrap in markdown ticks like ```json.\n\n'
         f"Document Context:\n{context_text}\n\n"
         f"Metadata:\n{json.dumps(document_metadata)}\n\n"
+        f"Output Schema for each object:\n{schema}\n"
+        f"The final output must be:\n{_schema({'questions': []})}\n"
+    )
+
+
+def assessment_question_generation_prompt(
+    request_context: Dict[str, Any],
+    existing_questions: List[Dict[str, Any]],
+    missing_count: int,
+) -> str:
+    schema = _schema({
+        "topic": "Extracted Topic",
+        "subject": "Extracted Subject",
+        "type": "mcq",
+        "difficulty": 5,
+        "interview_difficulty": 5,
+        "company_difficulty": 5,
+        "bloom_level": "Apply",
+        "content": "The actual question text",
+        "options": {"A": "...", "B": "...", "C": "...", "D": "..."},
+        "correct_answer": "A",
+        "detailed_explanation": "Step by step reasoning",
+        "hints": ["Hint 1", "Hint 2"],
+        "common_mistakes": ["Mistake 1"],
+        "company_tags": ["TCS", "Infosys"],
+        "placement_relevance": 8,
+        "estimated_time": 60,
+        "marks": 1.0,
+    })
+    return (
+        "System: Act as a placement assessment question writer.\n"
+        f"Goal: Generate exactly {missing_count} unique assessment questions.\n\n"
+        "Constraints:\n"
+        "- Return strictly valid JSON with a single top-level \"questions\" array.\n"
+        "- Do not use markdown.\n"
+        "- Do not repeat any question from the existing questions list.\n"
+        "- Generate only the missing questions.\n"
+        "- Match the requested subject, topic, difficulty, Bloom level, and company tags.\n"
+        "- Prefer MCQ format unless the request clearly needs another type.\n"
+        "- If you cannot create a unique question, omit it rather than duplicating.\n\n"
+        f"Requested Subject: {request_context.get('subject') or 'General'}\n"
+        f"Requested Topic: {request_context.get('topic') or 'General'}\n"
+        f"Requested Difficulty: {request_context.get('difficulty') or 5}\n"
+        f"Requested Bloom Level: {request_context.get('bloom_level') or 'Apply'}\n"
+        f"Requested Company Tags: {json.dumps(request_context.get('company_tags') or [], ensure_ascii=True)}\n\n"
+        f"Existing Questions to Avoid:\n{json.dumps(existing_questions[:50], indent=2, ensure_ascii=True) or '[]'}\n\n"
         f"Output Schema for each object:\n{schema}\n"
         f"The final output must be:\n{_schema({'questions': []})}\n"
     )

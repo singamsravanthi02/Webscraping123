@@ -1,4 +1,4 @@
-import json
+import logging
 import random
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
@@ -13,8 +13,10 @@ from app.domain.interviews.models import InterviewSession, InterviewType, Interv
 from app.domain.learning.models import LearningSession, LearningResource, ResourceType
 from app.domain.notifications.models import NotificationLog, NotificationChannel, NotificationStatus
 
+logger = logging.getLogger(__name__)
+
 def seed_users(db: Session):
-    print("Seeding Users...")
+    logger.info("Seeding Users...")
     users_seeded = 0
     
     # 1 Super Admin
@@ -85,14 +87,14 @@ def seed_users(db: Session):
                 users_seeded += 1
                 
     db.commit()
-    print(f"Users Seeded: {users_seeded}")
+    logger.info("Users Seeded: %s", users_seeded)
     return db.query(User).filter(User.role == UserRole.STUDENT).all()
 
 def seed_jobs(db: Session):
-    print("Seeding Jobs...")
+    logger.info("Seeding Jobs...")
     existing = db.query(Job).count()
     if existing >= 100:
-        print("Jobs already seeded.")
+        logger.info("Jobs already seeded.")
         return db.query(Job).all()
         
     companies = ["Google", "Microsoft", "Amazon", "TCS", "Infosys", "Wipro", "Cognizant", "Accenture", "IBM", "Oracle"]
@@ -119,14 +121,14 @@ def seed_jobs(db: Session):
         db.add(job)
         jobs.append(job)
     db.commit()
-    print("Jobs Seeded.")
+    logger.info("Jobs Seeded.")
     return jobs
 
 def seed_assessments(db: Session):
-    print("Seeding Assessments...")
+    logger.info("Seeding Assessments...")
     existing = db.query(Assessment).count()
     if existing >= 25:
-        print("Assessments already seeded.")
+        logger.info("Assessments already seeded.")
         return db.query(Assessment).all()
         
     for i in range(existing, 25):
@@ -139,11 +141,11 @@ def seed_assessments(db: Session):
         )
         db.add(a)
     db.commit()
-    print("Assessments Seeded.")
+    logger.info("Assessments Seeded.")
     return db.query(Assessment).all()
 
 def seed_notifications(db: Session, students):
-    print("Seeding Notifications...")
+    logger.info("Seeding Notifications...")
     templates = ["welcome", "assessment_reminder", "job_recommendation", "interview_reminder"]
     for student in students:
         existing = db.query(NotificationLog).filter(NotificationLog.user_id == student.id).count()
@@ -159,10 +161,10 @@ def seed_notifications(db: Session, students):
                 )
                 db.add(notification)
     db.commit()
-    print("Notifications Seeded.")
+    logger.info("Notifications Seeded.")
 
 def seed_learning_and_interviews(db: Session, students):
-    print("Seeding Learning & Interviews...")
+    logger.info("Seeding Learning & Interviews...")
     for student in students:
         if db.query(LearningSession).filter(LearningSession.user_id == student.id).count() == 0:
             ls = LearningSession(
@@ -211,10 +213,10 @@ def seed_learning_and_interviews(db: Session, students):
             db.add(result)
             
     db.commit()
-    print("Learning & Interviews Seeded.")
+    logger.info("Learning & Interviews Seeded.")
 
 def seed_assessment_attempts(db: Session, students, assessments):
-    print("Seeding Assessment Attempts...")
+    logger.info("Seeding Assessment Attempts...")
     for student in students:
         if db.query(AssessmentAttempt).filter(AssessmentAttempt.user_id == student.id).count() == 0:
             for assessment in random.sample(assessments, k=min(2, len(assessments))):
@@ -228,12 +230,12 @@ def seed_assessment_attempts(db: Session, students, assessments):
                 )
                 db.add(attempt)
     db.commit()
-    print("Assessment Attempts Seeded.")
+    logger.info("Assessment Attempts Seeded.")
 
 if __name__ == "__main__":
     db = SessionLocal()
     try:
-        print("Starting comprehensive database seeding...")
+        logger.info("Starting comprehensive database seeding...")
         students = seed_users(db)
         jobs = seed_jobs(db)
         assessments = seed_assessments(db)
@@ -243,8 +245,8 @@ if __name__ == "__main__":
             seed_learning_and_interviews(db, students)
             seed_assessment_attempts(db, students, assessments)
             
-        print("Database seeding entirely completed.")
+        logger.info("Database seeding entirely completed.")
     except Exception as e:
-        print(f"Error seeding database: {e}")
+        logger.error("Error seeding database: %s", e)
     finally:
         db.close()

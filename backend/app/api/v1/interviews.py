@@ -142,33 +142,33 @@ async def end_interview(id: int, current_user: User = Depends(get_current_active
     db.refresh(result)
     
     # --- Update Student AI Memory ---
-    memory = db.query(StudentAIMemory).filter(StudentAIMemory.user_id == current_user.id).first()
-    if not memory:
-        memory = StudentAIMemory(user_id=current_user.id)
-        db.add(memory)
-        db.flush()
-        
-    # Append to interview feedback
-    feedback_entry = {
-        "interview_id": interview.id,
-        "overall_grade": result.overall_grade,
-        "date": interview.end_time.isoformat() if interview.end_time else None
-    }
-    
-    # We must create a new list for SQLAlchemy JSON mutation detection
-    curr_feedback = list(memory.interview_feedback or [])
-    curr_feedback.append(feedback_entry)
-    memory.interview_feedback = curr_feedback
-    
-    # Add new strengths and weaknesses
-    curr_strong = list(set((memory.strong_topics or []) + result.strengths))
-    curr_weak = list(set((memory.weak_topics or []) + result.weaknesses))
-    
-    memory.strong_topics = curr_strong
-    memory.weak_topics = curr_weak
-    
-    db.commit()
-    
+    try:
+        memory = db.query(StudentAIMemory).filter(StudentAIMemory.user_id == current_user.id).first()
+        if not memory:
+            memory = StudentAIMemory(user_id=current_user.id)
+            db.add(memory)
+            db.flush()
+
+        feedback_entry = {
+            "interview_id": interview.id,
+            "overall_grade": result.overall_grade,
+            "date": interview.end_time.isoformat() if interview.end_time else None
+        }
+
+        curr_feedback = list(memory.interview_feedback or [])
+        curr_feedback.append(feedback_entry)
+        memory.interview_feedback = curr_feedback
+
+        curr_strong = list(set((memory.strong_topics or []) + (result.strengths or [])))
+        curr_weak = list(set((memory.weak_topics or []) + (result.weaknesses or [])))
+
+        memory.strong_topics = curr_strong
+        memory.weak_topics = curr_weak
+
+        db.commit()
+    except Exception:
+        db.rollback()
+
     # --- Recalculate Placement Readiness ---
     placement_engine.calculate_score(current_user.id)
     

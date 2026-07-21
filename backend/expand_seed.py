@@ -1,4 +1,4 @@
-import json
+import logging
 import random
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
@@ -13,10 +13,12 @@ from app.domain.interviews.models import InterviewSession, InterviewType, Interv
 from app.domain.learning.models import LearningSession, LearningResource, ResourceType
 from app.domain.notifications.models import NotificationLog, NotificationChannel, NotificationStatus
 
+logger = logging.getLogger(__name__)
+
 def run_expansion():
     db = SessionLocal()
     try:
-        print("Expanding DB...")
+        logger.info("Expanding DB...")
         # Add 30 more students
         colleges = ["JNTUH", "Osmania University", "CBIT", "VNR VJIET", "MGIT"]
         departments = ["Computer Science", "Information Technology", "Electronics"]
@@ -48,7 +50,7 @@ def run_expansion():
                 db.add(student)
                 new_students.append(student)
         db.commit()
-        print(f"Added {len(new_students)} new students")
+        logger.info("Added %s new students", len(new_students))
         
         # Add 10 more Jobs
         companies = ["Accenture", "Wipro", "Capgemini", "Cognizant", "Deloitte", "Oracle", "IBM"]
@@ -73,7 +75,7 @@ def run_expansion():
             db.add(job)
             new_jobs.append(job)
         db.commit()
-        print("Added 10 new jobs")
+        logger.info("Added 10 new jobs")
 
         all_students = db.query(User).filter(User.role == UserRole.STUDENT).all()
         # Ensure notifications are populated for all students to simulate activity
@@ -89,10 +91,10 @@ def run_expansion():
                 )
                 db.add(notification)
         db.commit()
-        print("Expanded notifications")
+        logger.info("Expanded notifications")
 
     except Exception as e:
-        print(f"Error expanding db: {e}")
+        logger.error("Error expanding db: %s", e)
     finally:
         db.close()
 

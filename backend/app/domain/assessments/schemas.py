@@ -1,21 +1,21 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from .models import AssessmentType, QuestionType, AttemptStatus
 
 class QuestionBase(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     topic: str
     subject: str
     difficulty: int
     type: QuestionType
     content: str
-    options: Optional[Any] = None
-
-    class Config:
-        from_attributes = True
-
+    options: List[str] = Field(default_factory=list)
 class AssessmentBase(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     title: str
     type: AssessmentType
@@ -23,10 +23,6 @@ class AssessmentBase(BaseModel):
     is_adaptive: bool
     is_proctored: bool
     total_marks: float
-    
-    class Config:
-        from_attributes = True
-
 class AssessmentStartResponse(BaseModel):
     attempt_id: int
     assessment: AssessmentBase

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from datetime import datetime
 from .models import InterviewType, InterviewStatus, MessageRole
@@ -8,14 +8,13 @@ class InterviewMessageBase(BaseModel):
     content: str
 
 class InterviewMessageCreate(InterviewMessageBase):
-    pass
+    ...
 
 class InterviewMessageResponse(InterviewMessageBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 class InterviewResultBase(BaseModel):
     confidence_score: Optional[float] = None
@@ -26,11 +25,10 @@ class InterviewResultBase(BaseModel):
     suggestions: Optional[List[str]] = None
 
 class InterviewResultResponse(InterviewResultBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 class InterviewCreate(BaseModel):
     title: str
@@ -39,6 +37,8 @@ class InterviewCreate(BaseModel):
     job_description: Optional[str] = None
 
 class InterviewResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: int
     title: str
@@ -46,12 +46,8 @@ class InterviewResponse(BaseModel):
     status: InterviewStatus
     start_time: datetime
     end_time: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
-
 class InterviewDetailResponse(InterviewResponse):
-    messages: List[InterviewMessageResponse] = []
+    messages: List[InterviewMessageResponse] = Field(default_factory=list)
     result: Optional[InterviewResultResponse] = None
 
 class ChatMessageRequest(BaseModel):

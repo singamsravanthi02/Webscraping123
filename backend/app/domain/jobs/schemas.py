@@ -1,9 +1,11 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import date, datetime
 from .models import JobSource, JobStatus
 
 class JobBase(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     title: str
     company: str
     location: Optional[str] = None
@@ -31,16 +33,11 @@ class JobResponse(JobBase):
     match_score: Optional[int] = None
     missing_skills: Optional[List[str]] = None
     recommended_topics: Optional[List[str]] = None
-    
-    class Config:
-        from_attributes = True
-
 class BookmarkResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     job_id: int
     notes: Optional[str]
     created_at: datetime
     job: JobResponse
-    
-    class Config:
-        from_attributes = True

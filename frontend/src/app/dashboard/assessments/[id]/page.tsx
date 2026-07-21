@@ -154,6 +154,9 @@ export default function AssessmentTestSandbox({ params }: { params: Promise<{ id
   }
 
   const currentQ = questions[currentQIndex];
+  const currentOptions = Array.isArray(currentQ?.options)
+    ? currentQ.options
+    : Object.values((currentQ?.options ?? {}) as Record<string, string>);
   
   if (!currentQ) return <div className="p-8 text-center">No questions found.</div>;
 
@@ -204,7 +207,7 @@ export default function AssessmentTestSandbox({ params }: { params: Promise<{ id
               </div>
               
               <div className="space-y-4">
-                {currentQ.options?.map((option, idx) => {
+                {currentOptions.map((option, idx) => {
                   const isSelected = answers[currentQ.id] === option;
                   return (
                     <div 

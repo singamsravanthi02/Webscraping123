@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from .models import NotificationChannel, NotificationStatus
@@ -11,16 +11,17 @@ class NotificationTemplateBase(BaseModel):
     is_active: bool = True
 
 class NotificationTemplateCreate(NotificationTemplateBase):
-    pass
+    ...
 
 class NotificationTemplateResponse(NotificationTemplateBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 class NotificationLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: int
     template_name: str
@@ -29,9 +30,6 @@ class NotificationLogResponse(BaseModel):
     error_message: Optional[str] = None
     created_at: datetime
     sent_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 class BroadcastRequest(BaseModel):
     subject: str

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build: ./backend
@@ -19,6 +17,8 @@ services:
       - db
       - redis
       - qdrant
+    volumes:
+      - knowledge_uploads:/tmp/spip_knowledge_uploads
     restart: unless-stopped
 
   celery_worker:
@@ -26,7 +26,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile.worker
     container_name: spip_celery
-    command: celery -A app.worker.celery_app.celery_app worker --loglevel=info
+    command: celery -A app.worker.celery_app.celery_app worker -Q main-queue --loglevel=info
     env_file:
       - ./backend/.env
     environment:
@@ -39,6 +39,8 @@ services:
     depends_on:
       - backend
       - redis
+    volumes:
+      - knowledge_uploads:/tmp/spip_knowledge_uploads
     restart: unless-stopped
 
   celery_beat:
@@ -127,3 +129,4 @@ volumes:
   postgres_data:
   redis_data:
   qdrant_data:
+  knowledge_uploads:

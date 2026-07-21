@@ -11,6 +11,10 @@ def get_engine():
         # Try to connect to Postgres
         engine = create_engine(
             settings.DATABASE_URL,
+            pool_size=20,
+            max_overflow=40,
+            pool_timeout=60,
+            pool_recycle=1800,
             pool_pre_ping=True,
             echo=False
         )
@@ -24,6 +28,10 @@ def get_engine():
         return create_engine(
             sqlite_url,
             connect_args={"check_same_thread": False},
+            pool_size=5,
+            max_overflow=10,
+            pool_timeout=30,
+            pool_recycle=1800,
             pool_pre_ping=True,
             echo=False
         )

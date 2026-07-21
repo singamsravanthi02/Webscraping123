@@ -16,7 +16,7 @@ class BaseAgent(ABC):
     @property
     @abstractmethod
     def agent_name(self) -> str:
-        pass
+        raise NotImplementedError
 
     def run_inference(self, prompt: str, user_id: int, use_pro: bool = False) -> str:
         """
@@ -65,5 +65,8 @@ class BaseAgent(ABC):
             )
             db.add(log)
             db.commit()
+        except Exception:
+            db.rollback()
+            # ponytail: best-effort telemetry; skip if the audit table is missing
         finally:
             db.close()
