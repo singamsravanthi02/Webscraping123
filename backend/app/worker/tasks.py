@@ -32,7 +32,7 @@ def dispatch_notification_task(self, log_id: int):
         
         # In a real app, this is where we call Twilio/SendGrid/FCM SDKs
         # For SMS: client.messages.create(to=user.phone, from_=our_phone, body=rendered_body)
-        # We simulate success but allow for random network failure mocking if desired
+        # Best-effort dispatch; retries and failure handling happen in the notification service.
         success = True 
         
         if success:

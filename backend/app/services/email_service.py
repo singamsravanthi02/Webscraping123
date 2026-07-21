@@ -26,8 +26,6 @@ class ConsoleEmailService(BaseEmailService):
 
     def send_password_reset_email(self, email: str, reset_token: str) -> None:
         logger.info(f"[DEBUG SPRINT] Password reset token for {email} is {reset_token}")
-        with open("latest_otp.txt", "w") as f:
-            f.write(reset_token)
         logger.info(f"Sending password reset token {reset_token} to {email}")
 
     def send_otp_email(self, email: str, otp: str) -> None:
@@ -65,16 +63,13 @@ class BrevoEmailService(BaseEmailService):
                     response.raise_for_status()
                     msg = f"Email sent successfully to {to_email}. Message ID: {response.json().get('messageId')}"
                     logger.info(msg)
-                    print(msg, flush=True)
                     return True
             except httpx.HTTPStatusError as e:
                 err = f"Brevo API error on attempt {attempt + 1}: {e.response.text}"
                 logger.error(err)
-                print(err, flush=True)
             except Exception as e:
                 err = f"Failed to send email on attempt {attempt + 1}: {str(e)}"
                 logger.error(err)
-                print(err, flush=True)
             
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt) # Exponential backoff
@@ -95,8 +90,6 @@ class BrevoEmailService(BaseEmailService):
 
     def send_password_reset_email(self, email: str, reset_token: str) -> None:
         logger.info(f"[DEBUG SPRINT] Password reset token for {email} is {reset_token}")
-        with open("latest_otp.txt", "w") as f:
-            f.write(reset_token)
         html = f"""
         <div style="font-family: sans-serif; padding: 20px;">
             <h2 style="color: #4F46E5;">Password Reset Request</h2>
@@ -109,8 +102,6 @@ class BrevoEmailService(BaseEmailService):
 
     def send_otp_email(self, email: str, otp: str) -> None:
         logger.info(f"[DEBUG SPRINT] OTP for {email} is {otp}")
-        with open("latest_otp.txt", "w") as f:
-            f.write(otp)
         html = f"""
         <div style="font-family: sans-serif; padding: 20px;">
             <h2 style="color: #4F46E5;">Verify your Email</h2>
@@ -130,4 +121,3 @@ def get_email_service() -> BaseEmailService:
         return ConsoleEmailService()
 
 email_service = get_email_service()
-

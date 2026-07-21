@@ -1,5 +1,8 @@
+import logging
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 class BaseKnowledgeAdapter(ABC):
     """
@@ -50,6 +53,6 @@ class BaseKnowledgeAdapter(ABC):
                 })
             except Exception as e:
                 # Log error and continue
-                print(f"Error syncing {url}: {e}")
+                logger.warning("Error syncing %s: %s", url, e)
                 
         return documents

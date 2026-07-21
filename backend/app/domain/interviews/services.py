@@ -1,4 +1,5 @@
 from typing import Dict, Any, List
+import logging
 from app.domain.interviews.models import InterviewType, MessageRole
 from app.domain.ai_orchestration.gateway import gateway
 from app.domain.ai_orchestration.agents.interviews import InterviewAgent
@@ -10,6 +11,7 @@ from app.domain.ai_orchestration.prompts import (
 from app.domain.ai_orchestration.schemas import InterviewEvaluationSchema
 
 agent = InterviewAgent()
+logger = logging.getLogger(__name__)
 
 def get_system_prompt_for_type(interview_type: InterviewType, job_description: str = None, resume_text: str = None) -> str:
     return interview_system_prompt(interview_type.value, job_description, resume_text)
@@ -18,7 +20,7 @@ async def generate_ai_response(system_prompt: str, chat_history: List[Dict[str, 
     try:
         return agent.process_turn(user_id, system_prompt, chat_history, new_message)
     except Exception as e:
-        print(f"Error calling Gemini: {e}")
+        logger.warning("Error calling Gemini: %s", e)
         return "I apologize, but I am having trouble connecting right now. Could you please repeat that?"
 
 async def evaluate_interview_transcript(system_prompt: str, chat_history: List[Dict[str, str]], user_id: int) -> Dict[str, Any]:
@@ -47,7 +49,7 @@ async def evaluate_interview_transcript(system_prompt: str, chat_history: List[D
         )
         return data.model_dump()
     except Exception as e:
-        print(f"Error evaluating interview: {e}")
+        logger.warning("Error evaluating interview: %s", e)
         user_turns = sum(1 for msg in chat_history if msg["role"] == MessageRole.USER)
         engagement_bonus = min(user_turns * 0.5, 2.0)
         return {

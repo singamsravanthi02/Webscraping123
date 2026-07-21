@@ -6,7 +6,6 @@ import { motion } from "framer-motion";
 export const CustomHeatmap = ({ data }: { data: { date: string, count: number }[] }) => {
   const [hoveredCell, setHoveredCell] = useState<{ date: string, count: number, x: number, y: number } | null>(null);
 
-  // Generate a mock 52 weeks x 7 days grid if no data passed for full graph
   const weeks = 20; // smaller grid for dashboard
   const days = 7;
   
@@ -20,32 +19,19 @@ export const CustomHeatmap = ({ data }: { data: { date: string, count: number }[
 
   const cells = [];
   const today = new Date();
-
-  const pseudoRandomCount = (seed: string) => {
-    let hash = 0;
-    for (let i = 0; i < seed.length; i += 1) {
-      hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-    }
-
-    return hash % 10;
-  };
   
   for (let w = 0; w < weeks; w++) {
     const weekCells = [];
     for (let d = 0; d < days; d++) {
-      // Mock historical dates
       const cellDate = new Date(today);
       cellDate.setDate(today.getDate() - ((weeks - 1 - w) * 7 + (days - 1 - d)));
       
       const dateStr = cellDate.toISOString().split('T')[0];
       const match = data?.find(x => x.date === dateStr);
-      
-      // Random generation if not matched, just for realistic looks if data missing
-      const count = match ? match.count : (pseudoRandomCount(dateStr) > 7 ? pseudoRandomCount(`${dateStr}:count`) : 0);
 
       weekCells.push({
         date: dateStr,
-        count
+        count: match ? match.count : 0
       });
     }
     cells.push(weekCells);
@@ -88,7 +74,6 @@ export const CustomHeatmap = ({ data }: { data: { date: string, count: number }[
         </div>
       </div>
       
-      {/* Tooltip */}
       {hoveredCell && (
         <motion.div 
           initial={{ opacity: 0, y: 5 }}

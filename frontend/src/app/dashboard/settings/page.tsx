@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { getErrorMessage } from "@/lib/utils";
+import api from "@/lib/api";
 
 const profileSchema = z.object({
   fullName: z.string().min(2, "Name is required"),
@@ -114,11 +115,14 @@ export default function SettingsPage() {
     }
   };
 
-  const onPasswordSave = async () => {
+  const onPasswordSave = async (data: PasswordFormValues) => {
     setIsSavingPassword(true);
     try {
-      // Assuming we have an endpoint for this, we could also use the OTP reset flow.
-      // For now, let's just show a mock success or error if no endpoint exists yet.
+      await api.post("/auth/change-password", {
+        current_password: data.currentPassword,
+        new_password: data.newPassword,
+        confirm_password: data.confirmPassword,
+      });
       toast.success("Password updated successfully");
       resetPassword();
     } catch (err: unknown) {

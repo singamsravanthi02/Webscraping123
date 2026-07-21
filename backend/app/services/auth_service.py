@@ -319,6 +319,21 @@ class AuthService:
         self._log_audit(user.id, "Password Reset", "Success", ip_address, user_agent)
         return {"message": "Password reset successfully. Please login with your new password."}
 
+    def change_password(self, user_id: int, current_password: str, new_password: str, ip_address: str = None, user_agent: str = None):
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if not verify_password(current_password, user.password_hash):
+            self._log_audit(user.id, "Password Change", "Failed - Incorrect Current Password", ip_address, user_agent)
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+        user.password_hash = get_password_hash(new_password)
+        self.db.commit()
+        self.logout_all(user.id, ip_address, user_agent)
+        self._log_audit(user.id, "Password Change", "Success", ip_address, user_agent)
+        return {"message": "Password updated successfully. Please sign in again."}
+
     def get_google_login_url(self) -> str:
         if not self._google_auth_enabled() or not settings.GOOGLE_CLIENT_ID:
             raise HTTPException(status_code=501, detail="Google authentication is disabled in development mode.")

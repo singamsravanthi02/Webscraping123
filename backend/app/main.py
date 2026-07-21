@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.exceptions import domain_exception_handler, DomainException
 from app.core.rate_limit import init_rate_limiter
-from app.api.v1 import auth, users, jobs, assessments, interviews, learning, notifications, knowledge
+from app.api.v1 import auth, users, jobs, assessments, interviews, learning, notifications, knowledge, analytics
 from prometheus_fastapi_instrumentator import Instrumentator
 from asgi_correlation_id import CorrelationIdMiddleware
 
@@ -65,6 +65,7 @@ app.include_router(interviews.router, prefix=f"{settings.API_V1_STR}/interviews"
 app.include_router(learning.router, prefix=f"{settings.API_V1_STR}/learning", tags=["learning"])
 app.include_router(notifications.router, prefix=f"{settings.API_V1_STR}/notifications", tags=["notifications"])
 app.include_router(knowledge.router, prefix=f"{settings.API_V1_STR}/knowledge", tags=["knowledge"])
+app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}/analytics", tags=["analytics"])
 
 @app.get("/health")
 def health_check():

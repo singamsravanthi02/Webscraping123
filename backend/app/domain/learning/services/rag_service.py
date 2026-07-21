@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import List, Dict, Any
 from .qdrant_service import search_documents
 from app.domain.ai_orchestration.gateway import gateway
@@ -7,6 +8,7 @@ from app.domain.ai_orchestration.prompts import study_material_prompt, PROMPT_VE
 from app.domain.ai_orchestration.schemas import StudyMaterialSchema
 
 agent = RAGAgent()
+logger = logging.getLogger(__name__)
 
 async def chat_with_context(query: str, chat_history: List[Dict[str, str]], subject: str = None, user_id: int = None) -> Dict[str, Any]:
     """
@@ -20,7 +22,7 @@ async def chat_with_context(query: str, chat_history: List[Dict[str, str]], subj
     try:
         retrieved_docs = search_documents(search_query, limit=4)
     except Exception as exc:
-        print(f"Error retrieving context: {exc}")
+        logger.warning("Error retrieving context: %s", exc)
         retrieved_docs = []
     
     context_str = ""
@@ -49,7 +51,7 @@ async def chat_with_context(query: str, chat_history: List[Dict[str, str]], subj
             "citations": citations_meta if retrieved_docs else []
         }
     except Exception as e:
-        print(f"Error generating AI response: {e}")
+        logger.warning("Error generating AI response: %s", e)
         error_resp = {
             "concise_explanation": "I'm sorry, I'm having trouble processing that right now. Please try again.",
             "confidence_level": "Low",
@@ -67,7 +69,7 @@ async def generate_study_material(material_type: str, topic: str, chat_history: 
     try:
         context_docs = search_documents(topic, limit=5)
     except Exception as exc:
-        print(f"Error retrieving study context: {exc}")
+        logger.warning("Error retrieving study context: %s", exc)
         context_docs = []
     context_str = "\n".join([f"- {doc['text']}" for doc in context_docs])
     prompt = study_material_prompt(material_type, topic, context_str)
@@ -85,5 +87,5 @@ async def generate_study_material(material_type: str, topic: str, chat_history: 
         )
         return response.model_dump()
     except Exception as e:
-        print(f"Error generating material: {e}")
+        logger.warning("Error generating material: %s", e)
         return {"material_type": material_type, "topic": topic, "summary_markdown": "", "flashcards": [], "questions": [], "key_points": [], "cheat_sheet": ""}

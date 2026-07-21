@@ -10,6 +10,7 @@ from app.domain.users.schemas import (
     UserCreate, UserLogin, TokenResponse, 
     VerifyOTPRequest, ResendOTPRequest,
     ForgotPasswordRequest, ResetPasswordRequest,
+    ChangePasswordRequest,
     SuccessResponse
 )
 from app.domain.users.models import TokenType
@@ -110,6 +111,18 @@ def reset_password(req: ResetPasswordRequest, request: Request, db: Session = De
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
     return auth_service.reset_password(req.email, req.otp, req.new_password, ip_address, user_agent)
+
+@router.post("/change-password", response_model=SuccessResponse)
+def change_password(
+    req: ChangePasswordRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    auth_service = AuthService(db)
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    return auth_service.change_password(current_user.id, req.current_password, req.new_password, ip_address, user_agent)
 
 from pydantic import BaseModel
 class GoogleAuthRequest(BaseModel):

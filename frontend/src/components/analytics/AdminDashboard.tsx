@@ -1,31 +1,45 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
 import { Server, Users, Activity, Zap } from "lucide-react";
+import { AdminAnalytics, AnalyticsOverview, getAnalyticsOverview } from "@/lib/analytics";
 
-const apiUsageData = [
-  { day: 'Mon', calls: 12000 },
-  { day: 'Tue', calls: 15000 },
-  { day: 'Wed', calls: 14000 },
-  { day: 'Thu', calls: 22000 },
-  { day: 'Fri', calls: 18000 },
-  { day: 'Sat', calls: 9000 },
-  { day: 'Sun', calls: 11000 },
-];
-
-const activeUsersData = [
-  { time: '08:00', users: 120 },
-  { time: '12:00', users: 340 },
-  { time: '16:00', users: 280 },
-  { time: '20:00', users: 450 },
-  { time: '24:00', users: 100 },
-];
+const EmptyState = ({ label }: { label: string }) => (
+  <div className="flex h-[300px] items-center justify-center rounded-xl border border-dashed border-[#2a2a35] text-sm text-gray-400">
+    {label}
+  </div>
+);
 
 export const AdminDashboard = () => {
+  const [admin, setAdmin] = useState<AdminAnalytics | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      try {
+        const overview: AnalyticsOverview = await getAnalyticsOverview();
+        setAdmin(overview.admin);
+      } catch (error) {
+        console.error("Failed to load admin analytics", error);
+        setAdmin(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchAnalytics();
+  }, []);
+
+  if (isLoading) {
+    return <div className="h-full flex items-center justify-center min-h-[400px]"><div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div></div>;
+  }
+
+  const apiUsageData = admin?.ai_usage ?? [];
+  const activeUsersData = admin?.concurrent_users ?? [];
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
-      {/* Top Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6 relative overflow-hidden">
           <div className="flex justify-between items-start mb-4">
@@ -34,10 +48,10 @@ export const AdminDashboard = () => {
               <Server className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-white">99.9%</div>
-          <p className="text-sm text-green-400 mt-2 font-medium">Operational</p>
+          <div className="text-3xl font-bold text-white">{admin?.system_status || "Operational"}</div>
+          <p className="text-sm text-green-400 mt-2 font-medium">Live backend health</p>
         </div>
-        
+
         <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6 relative overflow-hidden">
           <div className="flex justify-between items-start mb-4">
             <h3 className="text-gray-400 font-medium">Active Users</h3>
@@ -45,19 +59,19 @@ export const AdminDashboard = () => {
               <Users className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-white">450</div>
-          <p className="text-sm text-blue-400 mt-2 font-medium">Currently online</p>
+          <div className="text-3xl font-bold text-white">{admin?.active_users ?? 0}</div>
+          <p className="text-sm text-blue-400 mt-2 font-medium">Currently active</p>
         </div>
 
         <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6 relative overflow-hidden">
           <div className="flex justify-between items-start mb-4">
-            <h3 className="text-gray-400 font-medium">API Calls (Gemini)</h3>
+            <h3 className="text-gray-400 font-medium">AI Requests</h3>
             <div className="p-2 bg-purple-500/10 text-purple-400 rounded-lg">
               <Zap className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-white">101k</div>
-          <p className="text-sm text-gray-400 mt-2 font-medium">This week</p>
+          <div className="text-3xl font-bold text-white">{admin?.ai_requests ?? 0}</div>
+          <p className="text-sm text-gray-400 mt-2 font-medium">Recorded token usage rows</p>
         </div>
 
         <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6 relative overflow-hidden">
@@ -67,61 +81,75 @@ export const AdminDashboard = () => {
               <Activity className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-3xl font-bold text-white">12.5k</div>
-          <p className="text-sm text-gray-400 mt-2 font-medium">Total platform</p>
+          <div className="text-3xl font-bold text-white">{admin?.assessments_taken ?? 0}</div>
+          <p className="text-sm text-gray-400 mt-2 font-medium">Submitted attempts</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* API Usage */}
         <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-white">API Usage (Gemini/LLM)</h3>
-            <p className="text-sm text-gray-400">Weekly call volume</p>
+            <h3 className="text-lg font-semibold text-white">AI Requests</h3>
+            <p className="text-sm text-gray-400">Daily call volume</p>
           </div>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={apiUsageData}>
-                <defs>
-                  <linearGradient id="colorCalls" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2a2a35" />
-                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#9ca3af'}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#9ca3af'}} dx={-10} />
-                <Tooltip contentStyle={{ backgroundColor: '#1a1a24', border: '1px solid #2a2a35', borderRadius: '8px', color: '#fff' }} />
-                <Area type="monotone" dataKey="calls" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorCalls)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          {apiUsageData.length ? (
+            <div className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={apiUsageData}>
+                  <defs>
+                    <linearGradient id="colorCalls" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2a2a35" />
+                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: "#9ca3af" }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "#9ca3af" }} dx={-10} />
+                  <Tooltip contentStyle={{ backgroundColor: "#1a1a24", border: "1px solid #2a2a35", borderRadius: "8px", color: "#fff" }} />
+                  <Area type="monotone" dataKey="calls" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorCalls)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <EmptyState label="No AI usage data yet." />
+          )}
         </div>
 
-        {/* Active Users */}
         <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-white">Concurrent Users</h3>
-            <p className="text-sm text-gray-400">Today&apos;s active user load</p>
+            <h3 className="text-lg font-semibold text-white">Session Activity</h3>
+            <p className="text-sm text-gray-400">Live user session buckets</p>
           </div>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={activeUsersData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2a2a35" />
-                <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#9ca3af'}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#9ca3af'}} dx={-10} />
-                <Tooltip contentStyle={{ backgroundColor: '#1a1a24', border: '1px solid #2a2a35', borderRadius: '8px', color: '#fff' }} />
-                <Line 
-                  type="monotone" 
-                  dataKey="users" 
-                  stroke="#3b82f6" 
-                  strokeWidth={3}
-                  dot={{ fill: '#3b82f6', strokeWidth: 2, r: 4 }}
-                  activeDot={{ r: 6, fill: '#3b82f6', stroke: '#93c5fd', strokeWidth: 4 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          {activeUsersData.length ? (
+            <div className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={activeUsersData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2a2a35" />
+                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: "#9ca3af" }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "#9ca3af" }} dx={-10} />
+                  <Tooltip contentStyle={{ backgroundColor: "#1a1a24", border: "1px solid #2a2a35", borderRadius: "8px", color: "#fff" }} />
+                  <Line type="monotone" dataKey="users" stroke="#3b82f6" strokeWidth={3} dot={{ fill: "#3b82f6", strokeWidth: 2, r: 4 }} activeDot={{ r: 6, fill: "#3b82f6", stroke: "#93c5fd", strokeWidth: 4 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <EmptyState label="No session activity yet." />
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
+          <h3 className="text-lg font-semibold text-white mb-2">Jobs</h3>
+          <div className="text-3xl font-bold text-white">{admin?.jobs ?? 0}</div>
+        </div>
+        <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
+          <h3 className="text-lg font-semibold text-white mb-2">Knowledge Docs</h3>
+          <div className="text-3xl font-bold text-white">{admin?.documents ?? 0}</div>
+        </div>
+        <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
+          <h3 className="text-lg font-semibold text-white mb-2">Pending Notifications</h3>
+          <div className="text-3xl font-bold text-white">{admin?.pending_notifications ?? 0}</div>
         </div>
       </div>
     </div>
