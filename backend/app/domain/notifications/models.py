@@ -6,6 +6,7 @@ import enum
 from app.db.base import Base, AuditMixin
 
 class NotificationChannel(str, enum.Enum):
+    IN_APP = "in_app"
     EMAIL = "email"
     SMS = "sms"
     PUSH = "push"

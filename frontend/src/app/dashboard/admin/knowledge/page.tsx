@@ -34,7 +34,7 @@ export default function KnowledgeAdminDashboard() {
       } else {
         setMessage(data.detail || "Upload failed");
       }
-    } catch (err) {
+    } catch {
       setMessage("Upload failed due to network error.");
     } finally {
       setUploading(false);

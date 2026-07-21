@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { motion } from "framer-motion";
@@ -11,8 +11,11 @@ import { Loader2, Lock, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordStrengthIndicator } from "@/components/auth/PasswordStrengthIndicator";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import { FEATURE_FLAGS } from "@/lib/feature-flags";
+import { getErrorMessage } from "@/lib/utils";
 
 const resetPasswordSchema = z.object({
   otp: z.string().min(6, "Please enter a valid 6-digit verification code").max(6),
@@ -31,20 +34,16 @@ const resetPasswordSchema = z.object({
 
 type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>;
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
-  const [email, setEmail] = useState<string | null>(null);
-
-  useEffect(() => {
-    const emailParam = searchParams.get("email");
-    if (emailParam) setEmail(emailParam);
-  }, [searchParams]);
+  const email = searchParams.get("email");
 
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<ResetPasswordFormValues>({
     resolver: zodResolver(resetPasswordSchema),
@@ -54,6 +53,29 @@ export default function ResetPasswordPage() {
       confirmPassword: "",
     },
   });
+  const newPassword = useWatch({ control, name: "newPassword" });
+
+  if (!FEATURE_FLAGS.forgotPassword) {
+    return (
+      <div className="w-full max-w-md mx-auto">
+        <Card className="border-indigo-100/50 shadow-xl shadow-indigo-500/5 bg-white/80 backdrop-blur-xl text-center">
+          <CardHeader className="space-y-4 pb-6">
+            <CardTitle className="text-2xl font-bold tracking-tight text-gray-900">
+              Password reset is disabled
+            </CardTitle>
+            <CardDescription className="text-gray-500">
+              Development mode keeps password reset turned off.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => router.push("/login")}>
+              Back to login
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const onSubmit = async (data: ResetPasswordFormValues) => {
     if (!email) {
@@ -84,8 +106,8 @@ export default function ResetPasswordPage() {
 
       toast.success("Password reset successfully! You can now log in with your new password.");
       router.push("/login");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to reset password. Please try again.");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Failed to reset password. Please try again."));
     } finally {
       setIsLoading(false);
     }
@@ -149,6 +171,7 @@ export default function ResetPasswordPage() {
                     disabled={isLoading}
                   />
                 </div>
+                <PasswordStrengthIndicator password={newPassword} />
                 {errors.newPassword && (
                   <p className="text-sm text-red-500 font-medium">{errors.newPassword.message}</p>
                 )}
@@ -192,5 +215,13 @@ export default function ResetPasswordPage() {
         </Card>
       </motion.div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>}>
+      <ResetPasswordContent />
+    </Suspense>
   );
 }

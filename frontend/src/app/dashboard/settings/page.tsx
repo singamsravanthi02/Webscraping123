@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -13,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
+import { getErrorMessage } from "@/lib/utils";
 
 const profileSchema = z.object({
   fullName: z.string().min(2, "Name is required"),
@@ -74,7 +76,7 @@ export default function SettingsPage() {
             careerGoal: data.career_goal || "",
           });
         }
-      } catch (err) {
+      } catch {
         toast.error("Failed to load profile");
       } finally {
         setIsLoadingProfile(false);
@@ -105,22 +107,22 @@ export default function SettingsPage() {
 
       if (!res.ok) throw new Error("Failed to save profile");
       toast.success("Profile updated successfully");
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Failed to save profile"));
     } finally {
       setIsSavingProfile(false);
     }
   };
 
-  const onPasswordSave = async (data: PasswordFormValues) => {
+  const onPasswordSave = async () => {
     setIsSavingPassword(true);
     try {
       // Assuming we have an endpoint for this, we could also use the OTP reset flow.
       // For now, let's just show a mock success or error if no endpoint exists yet.
       toast.success("Password updated successfully");
       resetPassword();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Failed to update password"));
     } finally {
       setIsSavingPassword(false);
     }
@@ -142,8 +144,8 @@ export default function SettingsPage() {
 
       if (!res.ok) throw new Error("Failed to upload resume");
       toast.success("Resume uploaded successfully! It is now being parsed.");
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Failed to upload resume"));
     } finally {
       setIsUploading(false);
     }
@@ -167,8 +169,8 @@ export default function SettingsPage() {
       const payload = await res.json();
       setProfilePictureUrl((prev) => prev || URL.createObjectURL(e.target.files![0]));
       toast.success(payload.message || "Profile picture uploaded successfully");
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Failed to upload profile picture"));
     } finally {
       setIsUploadingProfilePicture(false);
     }
@@ -201,7 +203,7 @@ export default function SettingsPage() {
                       <div className="flex items-center gap-4">
                         <div className="h-16 w-16 overflow-hidden rounded-full bg-indigo-100 flex items-center justify-center border border-indigo-200">
                           {profilePictureUrl ? (
-                            <img src={profilePictureUrl} alt="Profile" className="h-full w-full object-cover" />
+                            <Image src={profilePictureUrl} alt="Profile" width={64} height={64} unoptimized className="h-full w-full object-cover" />
                           ) : (
                             <span className="text-sm font-semibold text-indigo-700">ST</span>
                           )}

@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Maximize2, ShieldAlert, Clock, ChevronRight, ChevronLeft, CheckCircle2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Maximize2, ShieldAlert, Clock, ChevronRight, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useProctoring } from "@/hooks/useProctoring";
@@ -18,6 +17,12 @@ interface Question {
   options: string[];
 }
 
+interface Assessment {
+  id: number;
+  title: string;
+  duration_minutes: number;
+}
+
 export default function AssessmentTestSandbox({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
@@ -28,36 +33,14 @@ export default function AssessmentTestSandbox({ params }: { params: Promise<{ id
   const [timeLeft, setTimeLeft] = useState(0);
   
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [assessment, setAssessment] = useState<any>(null);
+  const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [attemptId, setAttemptId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  useEffect(() => {
-    if (isFullscreen) {
-      startAssessment();
-    }
-  }, [isFullscreen]);
-  
-  useEffect(() => {
-    if (timeLeft > 0 && isFullscreen && !isSubmitting) {
-      const timer = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            submitAssessment();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      return () => clearInterval(timer);
-    }
-  }, [timeLeft, isFullscreen, isSubmitting]);
-
-  const startAssessment = async () => {
+  const startAssessment = useCallback(async () => {
     try {
-      const res = await api.post(`/assessments/${id}/start`);
+      const res = await api.post<{ questions: Question[]; assessment: Assessment; attempt_id: number }>(`/assessments/${id}/start`);
       setQuestions(res.data.questions);
       setAssessment(res.data.assessment);
       setAttemptId(res.data.attempt_id);
@@ -68,9 +51,9 @@ export default function AssessmentTestSandbox({ params }: { params: Promise<{ id
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [id]);
 
-  const submitAssessment = async () => {
+  const submitAssessment = useCallback(async () => {
     if (isSubmitting || !attemptId) return;
     setIsSubmitting(true);
     
@@ -101,7 +84,32 @@ export default function AssessmentTestSandbox({ params }: { params: Promise<{ id
       alert("Failed to submit assessment.");
       setIsSubmitting(false);
     }
-  };
+  }, [attemptId, answers, fullscreenViolations, id, isSubmitting, router, tabSwitchCount]);
+
+  useEffect(() => {
+    if (isFullscreen) {
+      const timer = window.setTimeout(() => {
+        void startAssessment();
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, [isFullscreen, startAssessment]);
+  
+  useEffect(() => {
+    if (timeLeft > 0 && isFullscreen && !isSubmitting) {
+      const timer = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            void submitAssessment();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [timeLeft, isFullscreen, isSubmitting, submitAssessment]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);

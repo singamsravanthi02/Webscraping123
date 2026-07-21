@@ -1,4 +1,5 @@
 from app.domain.ai_orchestration.agents.base import BaseAgent
+import json
 
 class JobMatchingAgent(BaseAgent):
     @property
@@ -33,9 +34,7 @@ class JobMatchingAgent(BaseAgent):
         ]
         """
         
-        response = self.run_inference(prompt, user_id, use_pro=False) # Flash is fine for fast sorting
-        
-        import json
+        response = self.run_inference(prompt, user_id, use_pro=False)  # Flash is fine for fast sorting
         try:
             scores = json.loads(response.strip('`').removeprefix('json').strip())
         except Exception:

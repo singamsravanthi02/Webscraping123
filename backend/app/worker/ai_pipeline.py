@@ -1,15 +1,14 @@
 import logging
 from typing import Dict, Any
 
-from app.domain.ai_orchestration.gateway import AIGateway
-import json
+from app.domain.ai_orchestration.gateway import AIGateway, gateway
+from app.domain.ai_orchestration.prompts import job_extraction_prompt
+from app.domain.ai_orchestration.schemas import JobExtractionSchema
 
 logger = logging.getLogger(__name__)
 
 class AIPipeline:
     def __init__(self):
-        self.gateway = AIGateway()
-        
         # Load local embedding model lazily to save startup time
         self._embedder = None
         
@@ -28,27 +27,14 @@ class AIPipeline:
         """
         logger.info("Extracting job details via Gemini LLM...")
         
-        prompt = f"""
-        Extract structured data from the following job description.
-        Return ONLY valid JSON with the following keys:
-        - "skills": A list of technical skills mentioned (strings).
-        - "eligibility": A short summary of eligibility criteria (string).
-        - "ai_summary": A one-sentence summary of the role (string).
-        
-        Description:
-        {raw_description[:3000]}
-        """
-        
         try:
-            chat = self.gateway.chat_session(use_pro=False) # Flash is faster for extraction
-            res = chat.send_message(prompt)
-            clean_json = res.text.replace("```json", "").replace("```", "").strip()
-            data = json.loads(clean_json)
-            return {
-                "skills": data.get("skills", []),
-                "eligibility": data.get("eligibility", "Not specified"),
-                "ai_summary": data.get("ai_summary", "A great opportunity.")
-            }
+            data = gateway.generate_structured_response(
+                job_extraction_prompt(raw_description),
+                JobExtractionSchema,
+                use_pro=False,
+                feature="job_extraction",
+            )
+            return data.model_dump()
         except Exception as e:
             logger.error(f"Gemini extraction failed: {e}")
             return {

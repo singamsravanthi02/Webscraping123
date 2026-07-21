@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useCallback, type ComponentType } from "react";
 import { useRouter } from "next/navigation";
 import { Trophy, MessageSquare, Brain, Target, ArrowLeft, Download, CheckCircle2, AlertTriangle, Lightbulb, BookOpen, Star, Code2 } from "lucide-react";
 import api from "@/lib/api";
@@ -27,20 +27,59 @@ interface InterviewResult {
   learning_plan: string;
 }
 
+interface TranscriptMessage {
+  role: "system" | "user" | "ai";
+  content: string;
+}
+
+type ScoreCardProps = {
+  title: string;
+  score: number;
+  icon: ComponentType<{ className?: string }>;
+  color: "purple" | "blue" | "green" | "rose" | "yellow";
+};
+
+const SCORE_CARD_STYLES: Record<ScoreCardProps["color"], { glow: string; icon: string; bar: string }> = {
+  purple: { glow: "bg-purple-500/5 group-hover:bg-purple-500/10", icon: "bg-purple-500/10 text-purple-400", bar: "bg-purple-500" },
+  blue: { glow: "bg-blue-500/5 group-hover:bg-blue-500/10", icon: "bg-blue-500/10 text-blue-400", bar: "bg-blue-500" },
+  green: { glow: "bg-green-500/5 group-hover:bg-green-500/10", icon: "bg-green-500/10 text-green-400", bar: "bg-green-500" },
+  rose: { glow: "bg-rose-500/5 group-hover:bg-rose-500/10", icon: "bg-rose-500/10 text-rose-400", bar: "bg-rose-500" },
+  yellow: { glow: "bg-yellow-500/5 group-hover:bg-yellow-500/10", icon: "bg-yellow-500/10 text-yellow-400", bar: "bg-yellow-500" },
+};
+
+function ScoreCard({ title, score, icon: Icon, color }: ScoreCardProps) {
+  const styles = SCORE_CARD_STYLES[color];
+  return (
+    <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6 relative overflow-hidden group">
+      <div className={`absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl transition-colors ${styles.glow}`} />
+      <div className="flex justify-between items-start mb-4 relative z-10">
+        <div className={`p-3 rounded-xl ${styles.icon}`}>
+          <Icon className="w-6 h-6" />
+        </div>
+        <span className="text-4xl font-bold text-white">{score || 0}<span className="text-lg text-gray-500">/10</span></span>
+      </div>
+      <h3 className="text-gray-400 font-medium relative z-10">{title}</h3>
+
+      <div className="mt-4 h-2 w-full bg-[#2a2a35] rounded-full overflow-hidden relative z-10">
+        <div
+          className={`h-full rounded-full transition-all duration-1000 ease-out ${styles.bar}`}
+          style={{ width: `${((score || 0) / 10) * 100}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function InterviewResult({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
   const [result, setResult] = useState<InterviewResult | null>(null);
-  const [transcript, setTranscript] = useState<any[]>([]);
+  const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchResult();
-  }, [id]);
-
-  const fetchResult = async () => {
+  const fetchResult = useCallback(async () => {
     try {
-      const res = await api.get(`/interviews/${id}`);
+      const res = await api.get<{ result: InterviewResult; messages: TranscriptMessage[] }>(`/interviews/${id}`);
       setResult(res.data.result);
       setTranscript(res.data.messages);
     } catch (error) {
@@ -48,27 +87,14 @@ export default function InterviewResult({ params }: { params: Promise<{ id: stri
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
-  const ScoreCard = ({ title, score, icon: Icon, color }: any) => (
-    <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6 relative overflow-hidden group">
-      <div className={`absolute top-0 right-0 w-32 h-32 bg-${color}-500/5 rounded-full blur-3xl group-hover:bg-${color}-500/10 transition-colors`} />
-      <div className="flex justify-between items-start mb-4 relative z-10">
-        <div className={`p-3 rounded-xl bg-${color}-500/10 text-${color}-400`}>
-          <Icon className="w-6 h-6" />
-        </div>
-        <span className="text-4xl font-bold text-white">{score || 0}<span className="text-lg text-gray-500">/10</span></span>
-      </div>
-      <h3 className="text-gray-400 font-medium relative z-10">{title}</h3>
-      
-      <div className="mt-4 h-2 w-full bg-[#2a2a35] rounded-full overflow-hidden relative z-10">
-        <div 
-          className={`h-full bg-${color}-500 rounded-full transition-all duration-1000 ease-out`}
-          style={{ width: `${((score || 0) / 10) * 100}%` }}
-        />
-      </div>
-    </div>
-  );
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchResult();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchResult]);
 
   if (loading) {
     return (
@@ -83,7 +109,7 @@ export default function InterviewResult({ params }: { params: Promise<{ id: stri
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
         <AlertTriangle className="w-16 h-16 text-yellow-500 mb-4" />
         <h2 className="text-2xl font-bold text-white mb-2">Result Pending</h2>
-        <p className="text-gray-400 mb-6">The evaluation is still being processed or the interview wasn't completed properly.</p>
+        <p className="text-gray-400 mb-6">The evaluation is still being processed or the interview wasn&apos;t completed properly.</p>
         <button onClick={() => router.push('/dashboard/interviews')} className="bg-purple-600 text-white px-6 py-2 rounded-full">Go Back</button>
       </div>
     );

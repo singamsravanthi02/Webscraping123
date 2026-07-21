@@ -1,8 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any, Type, TypeVar
+from pydantic import BaseModel
 from app.domain.ai_orchestration.gateway import gateway
 from app.domain.ai_orchestration.models import AIRecommendationLog
 from app.db.session import SessionLocal
+
+T = TypeVar("T", bound=BaseModel)
 
 class BaseAgent(ABC):
     """
@@ -24,6 +27,15 @@ class BaseAgent(ABC):
             use_pro=use_pro,
             user_id=user_id,
             feature=self.agent_name
+        )
+
+    def run_structured_inference(self, prompt: str, schema: Type[T], user_id: int, use_pro: bool = False) -> T:
+        return gateway.generate_structured_response(
+            prompt=prompt,
+            schema_model=schema,
+            use_pro=use_pro,
+            user_id=user_id,
+            feature=self.agent_name,
         )
 
     def log_recommendation(

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, use } from "react";
+import { useState, useEffect, useRef, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Send, ArrowLeft, Loader2, BookOpen, BrainCircuit, FileText, CheckCircle2, ChevronRight, BookMarked, ShieldCheck, AlertCircle } from "lucide-react";
+import { Send, ArrowLeft, Loader2, BrainCircuit, FileText, CheckCircle2, ChevronRight, BookMarked, ShieldCheck, AlertCircle } from "lucide-react";
 import api from "@/lib/api";
 
 interface Citation {
@@ -18,36 +18,72 @@ interface Message {
   citations?: Citation[];
 }
 
+interface LearningSession {
+  id: number;
+  title: string;
+  subject?: string | null;
+  messages: Message[];
+}
+
+interface QuizData {
+  questions: Array<{
+    question: string;
+    options: string[];
+    answer_index: number;
+    explanation: string;
+  }>;
+}
+
+interface FlashcardData {
+  flashcards: Array<{
+    front: string;
+    back: string;
+  }>;
+}
+
+interface StudyMaterialData {
+  material_type?: string;
+  topic?: string;
+  summary_markdown?: string;
+  flashcards?: FlashcardData["flashcards"];
+  questions?: QuizData["questions"];
+  key_points?: string[];
+  cheat_sheet?: string;
+}
+
 export default function LearningChat({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
   
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<LearningSession | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
   
-  const [studyMaterial, setStudyMaterial] = useState<{type: string, content: any} | null>(null);
+  const [studyMaterial, setStudyMaterial] = useState<{ type: string; content: QuizData | FlashcardData | StudyMaterialData | string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    fetchSession();
+  const fetchSession = useCallback(async () => {
+    try {
+      const res = await api.get<LearningSession>(`/learning/sessions/${id}`);
+      setSession(res.data);
+      setMessages(res.data.messages || []);
+    } catch (error) {
+      console.error(error);
+    }
   }, [id]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchSession();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchSession]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
-
-  const fetchSession = async () => {
-    try {
-      const res = await api.get(`/learning/sessions/${id}`);
-      setSession(res.data);
-      setMessages(res.data.messages);
-    } catch (error) {
-      console.error(error);
-    }
-  };
 
   const sendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -72,16 +108,8 @@ export default function LearningChat({ params }: { params: Promise<{ id: string 
     setIsGenerating(type);
     setStudyMaterial(null);
     try {
-      const res = await api.post(`/learning/generate`, { type, topic: session?.title });
-      
-      let content = res.data.result;
-      if (type === 'quiz' || type === 'flashcards') {
-        try {
-          content = JSON.parse(content);
-        } catch (e) {
-          console.error("Failed to parse JSON for", type);
-        }
-      }
+      const res = await api.post<{ result: QuizData | FlashcardData | StudyMaterialData | string }>(`/learning/generate`, { type, topic: session?.title });
+      const content = res.data.result;
       setStudyMaterial({ type, content });
     } catch (error) {
       console.error(error);
@@ -91,12 +119,12 @@ export default function LearningChat({ params }: { params: Promise<{ id: string 
   };
 
   // Helper renderers for inline study tools
-  const renderQuiz = (data: any) => {
+  const renderQuiz = (data: QuizData) => {
     if (!data || !data.questions) return <p className="text-gray-600">Invalid quiz data generated.</p>;
     return (
       <div className="space-y-6">
         <h3 className="text-xl font-bold flex items-center gap-2 text-gray-900"><CheckCircle2 className="text-green-500" /> Practice Quiz</h3>
-        {data.questions.map((q: any, i: number) => (
+        {data.questions.map((q, i: number) => (
           <div key={i} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
             <p className="font-medium text-gray-900 mb-4">{i+1}. {q.question}</p>
             <div className="space-y-2">
@@ -119,13 +147,13 @@ export default function LearningChat({ params }: { params: Promise<{ id: string 
     );
   };
 
-  const renderFlashcards = (data: any) => {
+  const renderFlashcards = (data: FlashcardData) => {
     if (!data || !data.flashcards) return <p className="text-gray-600">Invalid flashcard data generated.</p>;
     return (
       <div className="space-y-6">
         <h3 className="text-xl font-bold flex items-center gap-2 text-gray-900"><BookMarked className="text-yellow-500" /> Flashcards</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {data.flashcards.map((f: any, i: number) => (
+          {data.flashcards.map((f, i: number) => (
             <div key={i} className="group perspective-1000 w-full h-40">
               <div className="relative w-full h-full transition-transform duration-500 transform-style-preserve-3d group-hover:rotate-y-180">
                 {/* Front */}
@@ -211,8 +239,8 @@ export default function LearningChat({ params }: { params: Promise<{ id: string 
             {messages.length === 0 && (
               <div className="h-full flex flex-col items-center justify-center text-center opacity-70">
                 <BrainCircuit className="w-16 h-16 text-purple-500 mb-4" />
-                <p className="text-xl font-medium text-gray-900">Hello! I'm your AI Learning Assistant.</p>
-                <p className="text-sm mt-2 max-w-sm text-gray-500">Ask me any question about {session?.title}. I'll search through our trusted institutional knowledge base to give you accurate answers.</p>
+                <p className="text-xl font-medium text-gray-900">Hello! I&apos;m your AI Learning Assistant.</p>
+                <p className="text-sm mt-2 max-w-sm text-gray-500">Ask me any question about {session?.title}. I&apos;ll search through our trusted institutional knowledge base to give you accurate answers.</p>
               </div>
             )}
 
@@ -353,11 +381,40 @@ export default function LearningChat({ params }: { params: Promise<{ id: string 
             <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50">
               {studyMaterial.type === 'summary' && (
                 <div className="prose prose-sm max-w-none text-gray-700">
-                  <div dangerouslySetInnerHTML={{ __html: studyMaterial.content.replace(/\n/g, '<br/>') }} />
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html: (() => {
+                        if (typeof studyMaterial.content === "string") {
+                          return studyMaterial.content.replace(/\n/g, "<br/>");
+                        }
+                        const content = studyMaterial.content as StudyMaterialData;
+                        return (content.summary_markdown || "").replace(/\n/g, "<br/>");
+                      })(),
+                    }}
+                  />
+                  {typeof studyMaterial.content !== "string" && (studyMaterial.content as StudyMaterialData).key_points?.length ? (
+                    <ul className="mt-4 list-disc pl-5 space-y-1 text-gray-700">
+                      {(studyMaterial.content as StudyMaterialData).key_points!.map((point, index) => (
+                        <li key={index}>{point}</li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
               )}
-              {studyMaterial.type === 'quiz' && renderQuiz(studyMaterial.content)}
-              {studyMaterial.type === 'flashcards' && renderFlashcards(studyMaterial.content)}
+              {studyMaterial.type === 'quiz' && (
+                typeof studyMaterial.content === "string"
+                  ? null
+                  : 'questions' in (studyMaterial.content as QuizData)
+                    ? renderQuiz(studyMaterial.content as QuizData)
+                    : null
+              )}
+              {studyMaterial.type === 'flashcards' && (
+                typeof studyMaterial.content === "string"
+                  ? null
+                  : 'flashcards' in (studyMaterial.content as FlashcardData)
+                    ? renderFlashcards(studyMaterial.content as FlashcardData)
+                    : null
+              )}
             </div>
           </div>
         )}

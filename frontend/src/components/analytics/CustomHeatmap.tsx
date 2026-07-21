@@ -20,6 +20,15 @@ export const CustomHeatmap = ({ data }: { data: { date: string, count: number }[
 
   const cells = [];
   const today = new Date();
+
+  const pseudoRandomCount = (seed: string) => {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i += 1) {
+      hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    }
+
+    return hash % 10;
+  };
   
   for (let w = 0; w < weeks; w++) {
     const weekCells = [];
@@ -32,7 +41,7 @@ export const CustomHeatmap = ({ data }: { data: { date: string, count: number }[
       const match = data?.find(x => x.date === dateStr);
       
       // Random generation if not matched, just for realistic looks if data missing
-      const count = match ? match.count : (Math.random() > 0.7 ? Math.floor(Math.random() * 10) : 0);
+      const count = match ? match.count : (pseudoRandomCount(dateStr) > 7 ? pseudoRandomCount(`${dateStr}:count`) : 0);
 
       weekCells.push({
         date: dateStr,

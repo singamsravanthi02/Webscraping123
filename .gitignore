@@ -18,6 +18,15 @@ dist/
 build/
 .next/
 
+# Runtime junk
+logs/
+tmp/
+uploads/
+latest_otp.txt
+*.log
+*.tmp
+*.cache
+
 # IDE
 .vscode/
 .idea/

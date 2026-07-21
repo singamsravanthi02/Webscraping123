@@ -12,6 +12,7 @@ from app.domain.users.models import User
 from app.services.cache_service import cache
 from app.domain.job_discovery.schemas import (
     AIChatRequest,
+    AIChatResponse,
     AIJobDiscoveryResponse,
     JobActionResponse,
     JobApplyRequest,
@@ -81,7 +82,7 @@ def refresh_jobs(
         recommendations=payload.get("jobs") or [],
     )
 
-@router.post("/chat", response_model=AIJobDiscoveryResponse)
+@router.post("/chat", response_model=AIChatResponse)
 def chat_jobs(
     request: AIChatRequest,
     current_user: User = Depends(get_current_active_user),

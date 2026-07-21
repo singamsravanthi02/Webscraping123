@@ -1,13 +1,16 @@
+from __future__ import annotations
+
 import json
 import logging
-from typing import Any, Optional, Callable
 from functools import wraps
+from typing import Any, Callable
+
 import redis.asyncio as redis
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Initialize async redis client for caching
 redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 def cache_response(ttl: int = 300, key_prefix: str = "cache"):
@@ -24,27 +27,19 @@ def cache_response(ttl: int = 300, key_prefix: str = "cache"):
             kwargs_str = "_".join([f"{k}:{v}" for k, v in kwargs.items() if isinstance(v, (str, int))])
             cache_key = f"{key_prefix}:{func.__name__}:{kwargs_str}"
             
-            try:
-                cached_data = await redis_client.get(cache_key)
-                if cached_data:
-                    logger.debug(f"Cache hit for {cache_key}")
-                    return json.loads(cached_data)
-            except Exception as e:
-                logger.warning(f"Redis cache read error: {e}")
+            cached_data = await redis_client.get(cache_key)
+            if cached_data is not None:
+                logger.debug("Cache hit for %s", cache_key)
+                return json.loads(cached_data)
 
             # Execute function
             result = await func(*args, **kwargs)
             
             # Cache the result
-            try:
-                # Assuming result is serializable (like dict or pydantic model)
-                # In FastAPI, you usually return dicts or pydantic models which can be json.dumped
-                if isinstance(result, dict) or isinstance(result, list):
-                    await redis_client.setex(cache_key, ttl, json.dumps(result))
-                elif hasattr(result, "model_dump"): # Pydantic v2
-                    await redis_client.setex(cache_key, ttl, json.dumps(result.model_dump()))
-            except Exception as e:
-                logger.warning(f"Redis cache write error: {e}")
+            if isinstance(result, (dict, list)):
+                await redis_client.setex(cache_key, ttl, json.dumps(result))
+            elif hasattr(result, "model_dump"):
+                await redis_client.setex(cache_key, ttl, json.dumps(result.model_dump()))
                 
             return result
         return wrapper

@@ -5,20 +5,32 @@ import { CheckCircle, ArrowRight, BrainCircuit, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useCallback } from "react";
+
+interface AssessmentResult {
+  score: number;
+  total_marks: number;
+  ai_recommendations?: string[];
+}
 
 export default function AssessmentResultPage({ params }: { params: Promise<{ id: string }> }) {
-  const router = useRouter();
   const { id } = use(params);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<AssessmentResult | null>(null);
 
-  useEffect(() => {
+  const fetchResult = useCallback(() => {
     const data = sessionStorage.getItem(`assessment_result_${id}`);
     if (data) {
-      setResult(JSON.parse(data));
+      const parsed = JSON.parse(data) as AssessmentResult;
+      window.setTimeout(() => setResult(parsed), 0);
     }
   }, [id]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      fetchResult();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchResult]);
 
   if (!result) {
     return <div className="p-8 text-center text-gray-500">Loading results or no results found...</div>;

@@ -1,76 +1,62 @@
+from __future__ import annotations
+
+import json
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-class BaseCacheService(ABC):
-    @abstractmethod
-    def get(self, key: str) -> Optional[Any]:
-        pass
-
-    @abstractmethod
-    def set(self, key: str, value: Any, expiration: int = 3600) -> None:
-        pass
-
-    @abstractmethod
-    def delete(self, key: str) -> None:
-        pass
-
 import redis
-import json
-import logging
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-class InMemoryCacheService(BaseCacheService):
-    def __init__(self):
-        self._cache = {}
 
+class BaseCacheService(ABC):
+    @abstractmethod
     def get(self, key: str) -> Optional[Any]:
-        return self._cache.get(key)
+        raise NotImplementedError
 
+    @abstractmethod
     def set(self, key: str, value: Any, expiration: int = 3600) -> None:
-        self._cache[key] = value
+        raise NotImplementedError
 
+    @abstractmethod
     def delete(self, key: str) -> None:
-        if key in self._cache:
-            del self._cache[key]
+        raise NotImplementedError
+
 
 class RedisCacheService(BaseCacheService):
-    def __init__(self):
-        try:
-            self.redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
-            self.redis_client.ping()
-            self._is_active = True
-        except Exception as e:
-            logger.warning(f"Redis not available, falling back to in-memory cache: {e}")
-            self._is_active = False
-            self.fallback = InMemoryCacheService()
+    def __init__(self) -> None:
+        self.redis_client = redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+            retry_on_timeout=True,
+        )
 
     def get(self, key: str) -> Optional[Any]:
-        if not self._is_active:
-            return self.fallback.get(key)
         try:
-            val = self.redis_client.get(key)
-            if val:
-                return json.loads(val)
-        except Exception as e:
-            logger.warning(f"Redis get error: {e}")
-        return None
+            raw_value = self.redis_client.get(key)
+            if raw_value is None:
+                return None
+            return json.loads(raw_value)
+        except Exception as exc:
+            logger.warning("Redis cache read failed: %s", exc)
+            return None
 
     def set(self, key: str, value: Any, expiration: int = 3600) -> None:
-        if not self._is_active:
-            return self.fallback.set(key, value, expiration)
         try:
             self.redis_client.setex(key, expiration, json.dumps(value))
-        except Exception as e:
-            logger.warning(f"Redis set error: {e}")
+        except Exception as exc:
+            logger.warning("Redis cache write failed: %s", exc)
 
     def delete(self, key: str) -> None:
-        if not self._is_active:
-            return self.fallback.delete(key)
         try:
             self.redis_client.delete(key)
-        except Exception as e:
-            logger.warning(f"Redis delete error: {e}")
+        except Exception as exc:
+            logger.warning("Redis cache delete failed: %s", exc)
+
 
 cache = RedisCacheService()

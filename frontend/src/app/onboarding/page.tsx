@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import { useAuthStore } from "@/store/authStore";
+import { getErrorMessage } from "@/lib/utils";
 
 const onboardingSchema = z.object({
   phone: z.string().min(10, "Please enter a valid phone number"),
@@ -32,20 +34,16 @@ export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
-
-  useEffect(() => {
-    // Check if token exists
-    const token = localStorage.getItem("accessToken");
-    if (!token) {
-      router.push("/login");
-    }
-  }, [router]);
+  
+  const { accessToken } = useAuthStore();
 
   const {
     register,
     handleSubmit,
     getValues,
+    reset,
     trigger,
     formState: { errors },
   } = useForm<OnboardingFormValues>({
@@ -62,17 +60,109 @@ export default function OnboardingPage() {
     },
   });
 
+  useEffect(() => {
+    const token = accessToken || localStorage.getItem("accessToken");
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+
+    const fetchProfile = async () => {
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/users/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.profile_completed) {
+            router.push("/dashboard");
+            return;
+          }
+          
+          if (data.profile_data) {
+            // Restore state
+            const defaults: Partial<OnboardingFormValues> = {};
+            let highestStep = 1;
+            
+            if (data.profile_data.step1) {
+              defaults.phone = data.profile_data.step1.phone;
+              highestStep = 2;
+            }
+            if (data.profile_data.step2) {
+              defaults.college = data.profile_data.step2.college;
+              defaults.department = data.profile_data.step2.department;
+              defaults.branch = data.profile_data.step2.branch;
+              defaults.semester = String(data.profile_data.step2.semester);
+              defaults.cgpa = String(data.profile_data.step2.cgpa);
+              highestStep = 3;
+            }
+            if (data.profile_data.step3) {
+              defaults.skills = data.profile_data.step3.skills;
+              defaults.careerGoal = data.profile_data.step3.careerGoal;
+              highestStep = 4;
+            }
+            
+            reset(defaults);
+            setStep(highestStep);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch profile", err);
+      } finally {
+        setIsInitializing(false);
+      }
+    };
+    
+    fetchProfile();
+  }, [router, accessToken, reset]);
+
+  const saveStepToBackend = async (stepId: string, data: Record<string, unknown>) => {
+    const token = accessToken || localStorage.getItem("accessToken");
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/users/onboard/step`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ step_id: stepId, data })
+      });
+    } catch (e) {
+      console.error("Failed to save step", e);
+    }
+  };
+
   const nextStep = async () => {
     let isValid = false;
+    let currentStepData = {};
+    const values = getValues();
+    
     if (step === 1) {
       isValid = await trigger(["phone"]);
+      if (isValid) currentStepData = { phone: values.phone };
     } else if (step === 2) {
       isValid = await trigger(["college", "department", "branch", "semester", "cgpa"]);
+      if (isValid) currentStepData = { 
+        college: values.college, 
+        department: values.department, 
+        branch: values.branch, 
+        semester: values.semester, 
+        cgpa: values.cgpa 
+      };
     } else if (step === 3) {
       isValid = await trigger(["skills", "careerGoal"]);
+      if (isValid) currentStepData = { 
+        skills: values.skills, 
+        careerGoal: values.careerGoal 
+      };
     }
     
-    if (isValid) setStep((s) => s + 1);
+    if (isValid) {
+      setIsLoading(true);
+      await saveStepToBackend(`step${step}`, currentStepData);
+      setIsLoading(false);
+      setStep((s) => s + 1);
+    }
   };
 
   const prevStep = () => setStep((s) => s - 1);
@@ -85,11 +175,41 @@ export default function OnboardingPage() {
     
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("accessToken");
+      const token = accessToken || localStorage.getItem("accessToken");
       
-      // 1. Update Profile Data
+      // 1. Upload Resume
+      const formData = new FormData();
+      formData.append("file", resumeFile);
+
+      const resumeRes = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/users/upload/resume`,
+        {
+          method: "POST",
+          headers: { 
+            "Authorization": `Bearer ${token}` 
+          },
+          body: formData,
+        }
+      );
+
+      if (!resumeRes.ok) throw new Error("Failed to upload resume. Ensure it is a valid PDF or DOCX.");
+
+      // 2. Mark Onboarding Complete
+      const completeRes = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/users/onboard/complete`,
+        {
+          method: "POST",
+          headers: { 
+            "Authorization": `Bearer ${token}` 
+          }
+        }
+      );
+      
+      if (!completeRes.ok) throw new Error("Failed to complete onboarding");
+      
+      // Also update the main profile data as required by the backend
       const skillsArray = data.skills.split(",").map(s => s.trim()).filter(s => s);
-      const profileRes = await fetch(
+      await fetch(
         `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/users/me`,
         {
           method: "PUT",
@@ -110,35 +230,26 @@ export default function OnboardingPage() {
         }
       );
 
-      if (!profileRes.ok) throw new Error("Failed to update profile");
-
-      // 2. Upload Resume
-      const formData = new FormData();
-      formData.append("file", resumeFile);
-
-      const resumeRes = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/users/upload/resume`,
-        {
-          method: "POST",
-          headers: { 
-            "Authorization": `Bearer ${token}` 
-          },
-          body: formData,
-        }
-      );
-
-      if (!resumeRes.ok) throw new Error("Failed to upload resume");
-
       toast.success("Profile completed successfully! Welcome to Sreyas Platform.");
-      router.push("/dashboard");
-    } catch (error: any) {
-      toast.error(error.message || "An error occurred. Please try again.");
+      // Small delay for backend processing
+      setTimeout(() => router.push("/dashboard"), 1000);
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "An error occurred. Please try again."));
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleFormSubmit = handleSubmit(onSubmit);
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-gray-50/50 flex flex-col justify-center items-center">
+        <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+        <h1 className="text-xl font-medium text-gray-700">Loading your profile...</h1>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50/50 flex flex-col justify-center items-center py-12">
@@ -357,6 +468,7 @@ export default function OnboardingPage() {
               
               {step < 4 ? (
                 <Button type="button" onClick={nextStep} className="bg-indigo-600 hover:bg-indigo-700">
+                  {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                   Next Step <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               ) : (

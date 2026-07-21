@@ -30,7 +30,8 @@ def seed_test_data():
                 skills=["Python", "React", "SQL", "FastAPI"],
                 career_goal="Full Stack Developer",
                 is_active=True,
-                profile_completed=True
+                profile_completed=True,
+                is_verified=True
             )
             db.add(user)
             db.commit()
@@ -39,6 +40,7 @@ def seed_test_data():
             print("Test user already exists. Updating...")
             user.skills = ["Python", "React", "SQL", "FastAPI"]
             user.career_goal = "Full Stack Developer"
+            user.is_verified = True
             db.commit()
 
         # Create or update StudentSearchProfile
@@ -64,6 +66,58 @@ def seed_test_data():
             profile.interview_scores = {"confidence_score": 8, "communication_score": 7, "technical_score": 9, "problem_solving_score": 8, "overall_grade": 8}
             profile.learning_progress = {"sessions": 5, "messages": 120}
             db.commit()
+
+        # Create Mock Interview and Result
+        from app.domain.interviews.models import InterviewSession, InterviewResult, InterviewType, InterviewStatus
+        
+        interview = db.query(InterviewSession).filter(InterviewSession.user_id == user.id).first()
+        if not interview:
+            print("Creating test interview session and result...")
+            interview = InterviewSession(
+                user_id=user.id,
+                title="Mock Technical Interview - Full Stack",
+                type=InterviewType.TECHNICAL,
+                status=InterviewStatus.COMPLETED,
+            )
+            db.add(interview)
+            db.commit()
+            db.refresh(interview)
+            
+            interview_result = InterviewResult(
+                interview_id=interview.id,
+                confidence_score=8.0,
+                communication_score=7.0,
+                technical_score=9.0,
+                problem_solving_score=8.0,
+                overall_grade=8.0,
+                feedback_summary="Strong technical skills, could improve communication.",
+                suggestions=["Practice explaining system design choices"],
+                strengths=["Python", "FastAPI", "React"],
+                weaknesses=["Docker", "Kubernetes"],
+                recommended_topics=["Docker Essentials", "Kubernetes basics"],
+                placement_readiness_contribution=0.85
+            )
+            db.add(interview_result)
+            db.commit()
+        else:
+            print("Test interview already exists.")
+
+        # Create Mock Learning Session
+        from app.domain.learning.models import LearningSession
+        
+        learning = db.query(LearningSession).filter(LearningSession.user_id == user.id).first()
+        if not learning:
+            print("Creating test learning session...")
+            learning = LearningSession(
+                user_id=user.id,
+                title="Mastering React Hooks",
+                subject="React",
+                is_active=False
+            )
+            db.add(learning)
+            db.commit()
+        else:
+            print("Test learning session already exists.")
 
         print(f"Seed complete. Use '{test_email}' and 'password123' to test.")
 

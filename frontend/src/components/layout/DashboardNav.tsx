@@ -1,6 +1,7 @@
 'use client';
 
-import { Bell, Search, User } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Bell, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -11,8 +12,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAuthStore } from "@/store/authStore";
 
 export function DashboardNav() {
+  const router = useRouter();
+  const logout = useAuthStore((state) => state.logout);
+
   return (
     <header className="h-16 border-b border-border bg-background/80 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-30">
       <div className="flex items-center flex-1">
@@ -44,7 +49,15 @@ export function DashboardNav() {
             <DropdownMenuItem className="cursor-pointer">Profile</DropdownMenuItem>
             <DropdownMenuItem className="cursor-pointer">Settings</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive cursor-pointer">Log out</DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive cursor-pointer"
+              onClick={async () => {
+                await logout();
+                router.push("/login");
+              }}
+            >
+              Log out
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

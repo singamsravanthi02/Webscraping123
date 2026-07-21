@@ -16,6 +16,7 @@ class StudentAIMemory(Base):
     learning_history = Column(JSON, default=list)
     test_performance = Column(JSON, default=dict)
     interview_feedback = Column(JSON, default=list)
+    resume_analysis = Column(JSON, default=dict)
     preferred_roles = Column(JSON, default=list)
     career_goals = Column(String, nullable=True)
     weak_topics = Column(JSON, default=list)

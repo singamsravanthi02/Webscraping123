@@ -1,29 +1,39 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { BookOpen, Sparkles, Upload, FileText, Search, Library, Plus } from "lucide-react";
 import api from "@/lib/api";
 
+type LearningSession = {
+  id: number;
+  title: string;
+  subject?: string | null;
+  created_at: string;
+};
+
 export default function LearningDashboard() {
   const router = useRouter();
-  const [sessions, setSessions] = useState([]);
+  const [sessions, setSessions] = useState<LearningSession[]>([]);
   const [subject, setSubject] = useState("");
   const [title, setTitle] = useState("");
   const [isUploading, setIsUploading] = useState(false);
 
-  useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  const fetchSessions = async () => {
+  const fetchSessions = useCallback(async () => {
     try {
       const res = await api.get("/learning/sessions");
       setSessions(res.data);
     } catch (error) {
       console.error(error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchSessions();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchSessions]);
 
   const startSession = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,7 +156,7 @@ export default function LearningDashboard() {
           </h2>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {sessions.map((session: any) => (
+            {sessions.map((session) => (
               <div 
                 key={session.id} 
                 onClick={() => router.push(`/dashboard/learning/chat/${session.id}`)}

@@ -20,6 +20,8 @@ from app.domain.jobs.models import Job, JobBookmark, JobSource, JobStatus
 from app.domain.learning.models import LearningMessage, LearningSession
 from app.domain.users.models import User
 from app.worker.scrapers.factory import get_all_scrapers
+from app.domain.ai_orchestration.prompts import job_query_prompt, job_chat_prompt, PROMPT_VERSION_JOB_QUERY
+from app.domain.ai_orchestration.schemas import JobQuerySchema
 
 from .models import (
     AIJobQuery,
@@ -95,42 +97,28 @@ def _learning_progress(db: Session, user_id: int) -> Dict[str, Any]:
 
 class GeminiQueryGenerator:
     def generate(self, profile: StudentSearchProfile, user: User) -> List[str]:
-        prompt = f"""
-Student Profile:
-Skills:
-{chr(10).join(profile.keywords or [])}
-
-Education:
-{profile.search_context.get('education', 'Not specified')}
-
-Preferred Roles:
-{chr(10).join(profile.preferred_roles or [])}
-
-Preferred Locations:
-{chr(10).join(profile.preferred_locations or [])}
-
-Career Goal:
-{profile.career_goal or user.career_goal or 'Not specified'}
-
-Interview Scores:
-{json.dumps(profile.interview_scores or {})}
-
-Learning Progress:
-{json.dumps(profile.learning_progress or {})}
-
-Generate the best Google Job Search queries for this student.
-Return valid JSON only in this exact format:
-{{
-  "queries": ["query 1", "query 2"]
-}}
-
-Generate 10-20 search queries. Focus on internships, fresher roles, remote roles, and location-aware roles when relevant.
-"""
+        prompt = job_query_prompt(
+            {
+                "skills": profile.keywords or [],
+                "education": profile.search_context.get("education", "Not specified"),
+                "preferred_roles": profile.preferred_roles or [],
+                "preferred_locations": profile.preferred_locations or [],
+                "career_goal": profile.career_goal or user.career_goal or "Not specified",
+                "interview_scores": profile.interview_scores or {},
+                "learning_progress": profile.learning_progress or {},
+            }
+        )
         if settings.GEMINI_API_KEY:
             try:
-                response_text = gateway.generate_content(prompt, use_pro=False, user_id=user.id, feature="job_query_generation")
-                payload = _json_loads(response_text)
-                queries = payload.get("queries") or []
+                response = gateway.generate_structured_response(
+                    prompt,
+                    JobQuerySchema,
+                    use_pro=False,
+                    user_id=user.id,
+                    feature="job_query_generation",
+                    prompt_version=PROMPT_VERSION_JOB_QUERY,
+                )
+                queries = response.queries
                 return _dedupe_keep_order(queries)[:20]
             except Exception as exc:
                 logger.warning("Gemini query generation failed, using heuristic fallback: %s", exc)
@@ -467,7 +455,14 @@ class RecommendationEngine:
     def refresh_recommendations(self, user: User) -> Dict[str, Any]:
         profile = self.build_profile(user, refresh=True)
         query_records = self.generate_queries(profile, user, force=True)
-        jobs = self._collect_jobs_for_queries([q.query_text for q in query_records], user=user, profile=profile, query_id=None)
+        jobs = self._collect_jobs_for_queries(
+            [q.query_text for q in query_records], 
+            location=None, 
+            limit=20, 
+            user=user, 
+            profile=profile, 
+            query_id=None
+        )
         return self._materialize_recommendations(user, profile, query_records, jobs)
 
     def get_recommendations(self, user: User, limit: int = 20) -> List[Job]:
@@ -762,6 +757,9 @@ class AIJobDiscoveryService:
     def recommended_jobs(self, user: User, limit: int = 20) -> List[Job]:
         return self.engine.get_recommendations(user, limit=limit)
 
+    def get_history(self, user: User, limit: int = 50) -> List[JobSearchHistory]:
+        return self.engine.get_history(user, limit=limit)
+
     def search(self, user: User, query: str, location: Optional[str] = None, limit: int = 20, refresh: bool = False) -> Dict[str, Any]:
         result = self.engine.search_jobs(user, query=query, location=location, limit=limit, refresh=refresh)
         ranked = []
@@ -780,19 +778,23 @@ class AIJobDiscoveryService:
     def chat(self, user: User, message: str, location: Optional[str] = None, limit: int = 12) -> Dict[str, Any]:
         profile = self.engine.build_profile(user)
         query_bundle = self.engine.query_generator.generate(profile, user)
-        chat_prompt = f"""
-User message: {message}
-Location: {location or 'Any'}
-Profile keywords: {', '.join(profile.keywords or [])}
-Preferred roles: {', '.join(profile.preferred_roles or [])}
-Convert the message into job search queries. Return valid JSON only:
-{{"queries":["..."]}}
-"""
+        chat_prompt = job_chat_prompt(
+            message,
+            {
+                "keywords": profile.keywords or [],
+                "preferred_roles": profile.preferred_roles or [],
+            },
+            location=location,
+        )
         if settings.GEMINI_API_KEY:
             try:
-                response = gateway.generate_content(chat_prompt, user_id=user.id, feature="job_chat")
-                parsed = _json_loads(response)
-                chat_queries = _dedupe_keep_order(parsed.get("queries") or [])
+                response = gateway.generate_structured_response(
+                    chat_prompt,
+                    JobQuerySchema,
+                    user_id=user.id,
+                    feature="job_chat",
+                )
+                chat_queries = _dedupe_keep_order(response.queries)
             except Exception as exc:
                 logger.warning("AI chat query generation failed, using fallback: %s", exc)
                 chat_queries = []

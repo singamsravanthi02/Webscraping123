@@ -4,19 +4,23 @@ import { useState, useEffect } from "react";
 import { Send, Bell, Mail, Smartphone, History, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
 import api from "@/lib/api";
 
+type NotificationLog = {
+  id: number;
+  user_id: number | null;
+  template_name: string;
+  channel: string;
+  status: string;
+  error_message?: string | null;
+  created_at: string;
+};
+
 export default function AdminNotificationsPage() {
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<NotificationLog[]>([]);
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [channel, setChannel] = useState("email");
   const [isSending, setIsSending] = useState(false);
   const [activeTab, setActiveTab] = useState("broadcast");
-
-  useEffect(() => {
-    if (activeTab === "logs") {
-      fetchLogs();
-    }
-  }, [activeTab]);
 
   const fetchLogs = async () => {
     try {
@@ -27,6 +31,15 @@ export default function AdminNotificationsPage() {
       setLogs([]);
     }
   };
+
+  useEffect(() => {
+    if (activeTab === "logs") {
+      const timer = window.setTimeout(() => {
+        void fetchLogs();
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, [activeTab]);
 
   const handleBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();

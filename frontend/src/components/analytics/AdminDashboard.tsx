@@ -102,7 +102,7 @@ export const AdminDashboard = () => {
         <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
           <div className="mb-4">
             <h3 className="text-lg font-semibold text-white">Concurrent Users</h3>
-            <p className="text-sm text-gray-400">Today's active user load</p>
+            <p className="text-sm text-gray-400">Today&apos;s active user load</p>
           </div>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">

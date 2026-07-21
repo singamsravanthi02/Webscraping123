@@ -1,10 +1,12 @@
 'use client';
 
 import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LayoutDashboard, Briefcase, BookOpen, Target, Settings, LogOut, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useAuthStore } from "@/store/authStore";
 
 const navItems = [
   { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
@@ -16,6 +18,8 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const logout = useAuthStore((state) => state.logout);
 
   return (
     <div className="w-64 h-screen border-r border-border bg-background/50 backdrop-blur-md flex flex-col justify-between hidden md:flex sticky top-0 z-40">
@@ -53,10 +57,17 @@ export function Sidebar() {
           <p className="text-xs text-muted-foreground mb-3">Get unlimited AI mock interviews.</p>
           <Button variant="default" className="w-full text-xs h-8">Upgrade</Button>
         </div>
-        <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-destructive">
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 justify-start text-muted-foreground hover:text-destructive px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 hover:bg-secondary"
+          onClick={async () => {
+            await logout();
+            router.push("/login");
+          }}
+        >
           <LogOut className="w-4 h-4 mr-2" />
           Logout
-        </Button>
+        </button>
       </div>
     </div>
   );

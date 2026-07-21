@@ -3,6 +3,8 @@ from typing import List, Dict, Any
 from .qdrant_service import search_documents
 from app.domain.ai_orchestration.gateway import gateway
 from app.domain.ai_orchestration.agents.rag import RAGAgent
+from app.domain.ai_orchestration.prompts import study_material_prompt, PROMPT_VERSION_STUDY_MATERIAL
+from app.domain.ai_orchestration.schemas import StudyMaterialSchema
 
 agent = RAGAgent()
 
@@ -15,7 +17,11 @@ async def chat_with_context(query: str, chat_history: List[Dict[str, str]], subj
     if subject:
         search_query = f"{subject}: {query}"
         
-    retrieved_docs = search_documents(search_query, limit=4)
+    try:
+        retrieved_docs = search_documents(search_query, limit=4)
+    except Exception as exc:
+        print(f"Error retrieving context: {exc}")
+        retrieved_docs = []
     
     context_str = ""
     citations_meta = []
@@ -28,66 +34,18 @@ async def chat_with_context(query: str, chat_history: List[Dict[str, str]], subj
             "title": doc['title'],
             "type": doc['source_type']
         })
+
+    history_text = "\n".join(f"{msg['role']}: {msg['content']}" for msg in chat_history)
         
-    # 2. Build Prompt
-    system_prompt = f"""
-    You are an expert AI Learning Assistant. Your goal is to help students learn effectively.
-    
-    Use the following retrieved context to answer the user's question. 
-    Whenever you use information from the context, you MUST cite it using the bracket notation, e.g., [1], [2].
-    
-    CRITICAL RULE - HALLUCINATION PREVENTION:
-    If the context does not contain the answer, or if the context is empty, YOU MUST STRICTLY follow these instructions:
-    1. Set "confidence_level" to "Low".
-    2. Set "concise_explanation" exactly to: "I don't have enough information in the provided academic context to answer this question accurately. Please refer to your course materials or ask your professor."
-    3. Do NOT guess or invent facts.
-    
-    Context:
-    {context_str}
-    
-    You MUST output your response EXACTLY in the following strict JSON format, without any markdown formatting around it (no ```json):
-    {{
-        "concise_explanation": "Your detailed answer here, using markdown formatting for readability and including [1] citations.",
-        "confidence_level": "High/Medium/Low",
-        "related_topics": ["Topic 1", "Topic 2", "Topic 3"],
-        "suggested_quiz": "A suggested title for a follow-up quiz",
-        "suggested_flashcards": "A suggested topic for flashcards",
-        "suggested_revision_notes": "A suggested topic for revision notes"
-    }}
-    """
-    
-    chat_session = gateway.chat_session(use_pro=False)
-    chat_session.history.append({"role": "user", "parts": [system_prompt]})
-    chat_session.history.append({"role": "model", "parts": ["Understood."]})
-    
-    for msg in chat_history:
-        role = "user" if msg["role"] == "user" else "model"
-        if msg["role"] != "system":
-            chat_session.history.append({"role": role, "parts": [msg["content"]]})
-            
     try:
         if user_id:
-            response_text = agent.process_rag_chat(user_id, chat_session, query, citations_meta)
+            response = agent.process_rag_chat(user_id, query, context_str, citations_meta, history_text)
+            response_text = json.dumps(response)
         else:
-            response = chat_session.send_message(query)
-            response_text = response.text
-            
-        # Try to parse the JSON
-        parsed = {}
-        try:
-            # clean up markdown backticks if any
-            clean_text = response_text.replace("```json", "").replace("```", "").strip()
-            parsed = json.loads(clean_text)
-        except Exception as parse_e:
-            print(f"Failed to parse JSON response: {parse_e}")
-            parsed = {
-                "concise_explanation": response_text,
-                "confidence_level": "Medium",
-                "related_topics": []
-            }
-            
+            response_text = json.dumps(agent.process_rag_chat(None, query, context_str, citations_meta, history_text))
+
         return {
-            "content": json.dumps(parsed), # Store as a JSON string in content field for DB
+            "content": response_text,
             "citations": citations_meta if retrieved_docs else []
         }
     except Exception as e:
@@ -102,65 +60,30 @@ async def chat_with_context(query: str, chat_history: List[Dict[str, str]], subj
             "citations": []
         }
 
-async def generate_study_material(material_type: str, topic: str, chat_history: List[Dict[str, str]] = None, user_id: int = None) -> str:
+async def generate_study_material(material_type: str, topic: str, chat_history: List[Dict[str, str]] = None, user_id: int = None) -> Dict[str, Any]:
     """
     Generates specific study materials (quiz, summary, flashcards) based on a topic or recent chat context.
     """
-    context_docs = search_documents(topic, limit=5)
-    context_str = "\n".join([f"- {doc['text']}" for doc in context_docs])
-    
-    if material_type == "quiz":
-        prompt = f"""
-        Generate a 5-question multiple choice quiz on the topic: '{topic}'.
-        Use this reference material if helpful:
-        {context_str}
-        
-        Format the output in strict JSON like this:
-        {{
-            "questions": [
-                {{
-                    "question": "...",
-                    "options": ["A", "B", "C", "D"],
-                    "answer_index": 0,
-                    "explanation": "..."
-                }}
-            ]
-        }}
-        """
-    elif material_type == "flashcards":
-        prompt = f"""
-        Generate 5 study flashcards on the topic: '{topic}'.
-        Use this reference material if helpful:
-        {context_str}
-        
-        Format the output in strict JSON like this:
-        {{
-            "flashcards": [
-                {{
-                    "front": "Term or Question",
-                    "back": "Definition or Answer"
-                }}
-            ]
-        }}
-        """
-    elif material_type == "summary":
-        prompt = f"""
-        Provide a comprehensive markdown summary of the topic: '{topic}'.
-        Make it beautiful and easy to read. Use headings, bullet points, and highlight key terms.
-        Use this reference material:
-        {context_str}
-        """
-    else:
-        return "Invalid material type requested."
-        
     try:
-        text = gateway.generate_content(prompt, use_pro=False, user_id=user_id, feature=f"generate_{material_type}")
-        
-        # If JSON requested, try to clean it
-        if material_type in ["quiz", "flashcards"]:
-            text = text.replace("```json", "").replace("```", "").strip()
-            
-        return text
+        context_docs = search_documents(topic, limit=5)
+    except Exception as exc:
+        print(f"Error retrieving study context: {exc}")
+        context_docs = []
+    context_str = "\n".join([f"- {doc['text']}" for doc in context_docs])
+    prompt = study_material_prompt(material_type, topic, context_str)
+    if prompt == "Invalid material type requested.":
+        return {"material_type": material_type, "topic": topic, "summary_markdown": "", "flashcards": [], "questions": [], "key_points": [], "cheat_sheet": ""}
+
+    try:
+        response = gateway.generate_structured_response(
+            prompt,
+            StudyMaterialSchema,
+            use_pro=False,
+            user_id=user_id,
+            feature=f"generate_{material_type}",
+            prompt_version=PROMPT_VERSION_STUDY_MATERIAL,
+        )
+        return response.model_dump()
     except Exception as e:
         print(f"Error generating material: {e}")
-        return "Failed to generate study material."
+        return {"material_type": material_type, "topic": topic, "summary_markdown": "", "flashcards": [], "questions": [], "key_points": [], "cheat_sheet": ""}

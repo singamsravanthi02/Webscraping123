@@ -1,10 +1,36 @@
+"use client";
+
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Sparkles, BrainCircuit, Target, Briefcase, ChevronRight } from "lucide-react";
+import { ArrowRight, Sparkles, BrainCircuit, Target, Briefcase, ChevronRight, Loader2 } from "lucide-react";
 import { SlideUp } from "@/components/animations/SlideUp";
 import { StaggerContainer, StaggerItem } from "@/components/animations/StaggerContainer";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/authStore";
 
 export default function LandingPage() {
+  const router = useRouter();
+  const { isAuthenticated } = useAuthStore();
+  const [isNavigating, setIsNavigating] = useState(false);
+
+  const handleSmoothScroll = (e: React.MouseEvent<HTMLAnchorElement>, targetId: string) => {
+    e.preventDefault();
+    const target = document.getElementById(targetId);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  const handleViewAnalytics = () => {
+    setIsNavigating(true);
+    if (isAuthenticated) {
+      router.push("/dashboard");
+    } else {
+      router.push("/login");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background relative overflow-hidden flex flex-col">
       {/* Background Blobs for that premium modern SaaS feel */}
@@ -23,21 +49,31 @@ export default function LandingPage() {
           <span className="font-bold text-xl tracking-tight text-foreground">SPIP</span>
         </div>
         <div className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
-          <Link href="#features" className="hover:text-foreground transition-colors">Features</Link>
-          <Link href="#assessments" className="hover:text-foreground transition-colors">Assessments</Link>
-          <Link href="#success" className="hover:text-foreground transition-colors">Success Stories</Link>
+          <a href="#features" onClick={(e) => handleSmoothScroll(e, "features")} className="hover:text-foreground transition-colors cursor-pointer">Features</a>
+          <a href="#assessments" onClick={(e) => handleSmoothScroll(e, "assessments")} className="hover:text-foreground transition-colors cursor-pointer">Assessments</a>
+          <a href="#success" onClick={(e) => handleSmoothScroll(e, "success")} className="hover:text-foreground transition-colors cursor-pointer">Success Stories</a>
         </div>
         <div className="flex items-center gap-4">
-          <Link href="/login">
-            <Button variant="ghost" className="font-medium text-muted-foreground hover:text-foreground">
-              Sign In
-            </Button>
-          </Link>
-          <Link href="/login">
-            <Button className="rounded-full px-6 shadow-premium hover:shadow-premium-hover transition-all">
-              Get Started
-            </Button>
-          </Link>
+          {isAuthenticated ? (
+            <Link href="/dashboard">
+              <Button className="rounded-full px-6 shadow-premium hover:shadow-premium-hover transition-all">
+                Dashboard
+              </Button>
+            </Link>
+          ) : (
+            <>
+              <Link href="/login">
+                <Button variant="ghost" className="font-medium text-muted-foreground hover:text-foreground">
+                  Sign In
+                </Button>
+              </Link>
+              <Link href="/register">
+                <Button className="rounded-full px-6 shadow-premium hover:shadow-premium-hover transition-all">
+                  Get Started
+                </Button>
+              </Link>
+            </>
+          )}
         </div>
       </nav>
 
@@ -69,21 +105,34 @@ export default function LandingPage() {
 
         <SlideUp delay={0.3} duration={0.8} yOffset={30}>
           <div className="mt-10 flex flex-col sm:flex-row items-center gap-4 justify-center">
-            <Link href="/login" className="w-full sm:w-auto">
-              <Button size="lg" className="h-14 px-8 rounded-full text-base shadow-premium hover:shadow-premium-hover transition-all gap-2 w-full">
-                Start Your Journey <ArrowRight className="w-4 h-4" />
-              </Button>
-            </Link>
-            <Link href="/dashboard" className="w-full sm:w-auto">
-              <Button size="lg" variant="outline" className="h-14 px-8 rounded-full text-base bg-white/50 backdrop-blur-sm border-border/50 hover:bg-white/80 w-full">
-                View Analytics
-              </Button>
-            </Link>
+            {isAuthenticated ? (
+              <Link href="/dashboard" className="w-full sm:w-auto">
+                <Button size="lg" className="h-14 px-8 rounded-full text-base shadow-premium hover:shadow-premium-hover transition-all gap-2 w-full">
+                  Go to Dashboard <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            ) : (
+              <Link href="/register" className="w-full sm:w-auto">
+                <Button size="lg" className="h-14 px-8 rounded-full text-base shadow-premium hover:shadow-premium-hover transition-all gap-2 w-full">
+                  Start Your Journey <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            )}
+            <Button 
+              size="lg" 
+              variant="outline" 
+              onClick={handleViewAnalytics}
+              disabled={isNavigating}
+              className="h-14 px-8 rounded-full text-base bg-white/50 backdrop-blur-sm border-border/50 hover:bg-white/80 w-full sm:w-auto"
+            >
+              {isNavigating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              View Analytics
+            </Button>
           </div>
         </SlideUp>
 
         {/* Feature Cards Showcase */}
-        <div className="w-full max-w-6xl mx-auto mt-32">
+        <div id="features" className="w-full max-w-6xl mx-auto mt-32 scroll-mt-24">
           <StaggerContainer staggerDelay={0.15} className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
             <StaggerItem>
               <div className="glass-card p-8 rounded-[24px] h-full transition-transform hover:-translate-y-2 duration-300">
@@ -98,7 +147,7 @@ export default function LandingPage() {
             </StaggerItem>
 
             <StaggerItem>
-              <div className="glass-card p-8 rounded-[24px] h-full transition-transform hover:-translate-y-2 duration-300">
+              <div id="assessments" className="glass-card p-8 rounded-[24px] h-full transition-transform hover:-translate-y-2 duration-300 scroll-mt-24">
                 <div className="w-12 h-12 rounded-xl bg-indigo-500/10 flex items-center justify-center mb-6">
                   <Target className="w-6 h-6 text-indigo-500" />
                 </div>
@@ -110,7 +159,7 @@ export default function LandingPage() {
             </StaggerItem>
 
             <StaggerItem>
-              <div className="glass-card p-8 rounded-[24px] h-full transition-transform hover:-translate-y-2 duration-300">
+              <div id="success" className="glass-card p-8 rounded-[24px] h-full transition-transform hover:-translate-y-2 duration-300 scroll-mt-24">
                 <div className="w-12 h-12 rounded-xl bg-sky-500/10 flex items-center justify-center mb-6">
                   <Briefcase className="w-6 h-6 text-sky-500" />
                 </div>

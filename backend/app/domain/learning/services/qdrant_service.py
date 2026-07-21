@@ -1,55 +1,42 @@
-import os
-from typing import List, Dict, Any
-from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, VectorParams, PointStruct
-import google.generativeai as genai
+from __future__ import annotations
+
 import logging
+from typing import Any, Dict, List, Optional
+
+from qdrant_client import QdrantClient
+from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
+
 from app.core.config import settings
+from app.domain.ai_orchestration.gateway import gateway
 
 logger = logging.getLogger(__name__)
 
-qdrant_client = None
 COLLECTION_NAME = "learning_materials"
+EMBEDDING_DIMENSION = 3072
 
-try:
-    qdrant_url = settings.QDRANT_URL
-    
-    qdrant_client = QdrantClient(
-        url=qdrant_url, 
-        api_key=settings.QDRANT_API_KEY
-    )
-    
-    # Ensure collection exists
+qdrant_client = QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
+
+
+def _ensure_collection() -> None:
     try:
-        qdrant_client.get_collection(COLLECTION_NAME)
+        collection = qdrant_client.get_collection(COLLECTION_NAME)
+        current_vectors = collection.config.params.vectors
+        current_size = getattr(current_vectors, "size", None)
+        if current_size != EMBEDDING_DIMENSION:
+            qdrant_client.delete_collection(COLLECTION_NAME)
+            raise ValueError("Recreating Qdrant collection with updated embedding dimension.")
     except Exception:
         qdrant_client.create_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+            vectors_config=VectorParams(size=EMBEDDING_DIMENSION, distance=Distance.COSINE),
         )
-except Exception as e:
-    logger.error(f"Qdrant connection failed: {e}. Vector search will be disabled.")
 
-if settings.GEMINI_API_KEY:
-    genai.configure(api_key=settings.GEMINI_API_KEY)
 
 def get_embedding(text: str) -> List[float]:
-    """Generates an embedding using Gemini text-embedding-004 model"""
-    try:
-        # text-embedding-004 returns 768-dimensional embeddings
-        result = genai.embed_content(
-            model="models/text-embedding-004",
-            content=text,
-            task_type="retrieval_document"
-        )
-        return result['embedding']
-    except Exception as e:
-        print(f"Embedding error: {e}")
-        # Return empty/zero vector in worst case (not ideal for production, but prevents crashes)
-        return [0.0] * 768 
+    return gateway.embed_text(text, feature="qdrant_embedding")
+
 
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
-    """Simple character-based chunking with overlap."""
     chunks = []
     start = 0
     while start < len(text):
@@ -58,20 +45,27 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[st
         start += chunk_size - overlap
     return chunks
 
-def ingest_document(document_id: int, title: str, text_content: str, source_type: str, 
-                    subject: str = None, unit: str = None, semester: str = None, 
-                    topic: str = None, keywords: List[str] = None):
-    """
-    Chunks a document, embeds it, and stores it in Qdrant with rich metadata.
-    """
+
+def ingest_document(
+    document_id: int,
+    title: str,
+    text_content: str,
+    source_type: str,
+    subject: str | None = None,
+    unit: str | None = None,
+    semester: str | None = None,
+    topic: str | None = None,
+    keywords: List[str] | None = None,
+):
+    _ensure_collection()
     chunks = chunk_text(text_content)
     points = []
-    
+
     for i, chunk in enumerate(chunks):
         embedding = get_embedding(chunk)
         points.append(
             PointStruct(
-                id=int(f"{document_id}{i:04d}"), # Unique composite ID
+                id=int(f"{document_id}{i:04d}"),
                 vector=embedding,
                 payload={
                     "document_id": document_id,
@@ -83,64 +77,45 @@ def ingest_document(document_id: int, title: str, text_content: str, source_type
                     "unit": unit,
                     "semester": semester,
                     "topic": topic,
-                    "keywords": keywords or []
-                }
+                    "keywords": keywords or [],
+                },
             )
         )
-        
+
     if points:
-        if qdrant_client:
-            try:
-                qdrant_client.upsert(
-                    collection_name=COLLECTION_NAME,
-                    points=points
-                )
-            except Exception as e:
-                logger.error(f"Failed to upsert to Qdrant: {e}")
-        else:
-            logger.warning("Qdrant client not initialized. Cannot upsert points.")
+        qdrant_client.upsert(collection_name=COLLECTION_NAME, points=points)
+
 
 def search_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
-    """
-    Searches Qdrant for relevant chunks based on the query.
-    """
-    if not qdrant_client:
-        logger.warning("Qdrant client not initialized. Returning empty search results.")
-        return []
-        
+    _ensure_collection()
     query_vector = get_embedding(query)
     try:
-        search_result = qdrant_client.search(
+        search_result = qdrant_client.query_points(
             collection_name=COLLECTION_NAME,
-            query_vector=query_vector,
-            limit=limit
-        )
-        
+            query=query_vector,
+            limit=limit,
+        ).points
+
         results = []
         for hit in search_result:
-            results.append({
-                "score": hit.score,
-                "title": hit.payload.get("title"),
-                "text": hit.payload.get("text"),
-                "source_type": hit.payload.get("source_type"),
-                "document_id": hit.payload.get("document_id")
-            })
-            
+            payload = hit.payload or {}
+            results.append(
+                {
+                    "score": hit.score,
+                    "title": payload.get("title"),
+                    "text": payload.get("text"),
+                    "source_type": payload.get("source_type"),
+                    "document_id": payload.get("document_id"),
+                }
+            )
         return results
-    except Exception as e:
-        logger.error(f"Failed to search Qdrant: {e}")
-        return []
+    except Exception as exc:
+        logger.error("Failed to search Qdrant: %s", exc)
+        raise RuntimeError(f"Qdrant search failed: {exc}") from exc
+
 
 def get_document_text(document_id: int) -> str:
-    """
-    Reconstructs the full document text by fetching all its chunks from Qdrant.
-    """
-    if not qdrant_client:
-        logger.warning("Qdrant client not initialized. Cannot retrieve document text.")
-        return ""
-        
-    from qdrant_client.http.models import Filter, FieldCondition, MatchValue
-    
+    _ensure_collection()
     try:
         response, _ = qdrant_client.scroll(
             collection_name=COLLECTION_NAME,
@@ -148,23 +123,18 @@ def get_document_text(document_id: int) -> str:
                 must=[
                     FieldCondition(
                         key="document_id",
-                        match=MatchValue(value=document_id)
+                        match=MatchValue(value=document_id),
                     )
                 ]
             ),
-            limit=1000 # Assume a doc won't have more than 1000 chunks (1M chars)
+            limit=1000,
         )
-        
+
         if not response:
             return ""
-            
-        # Sort chunks by their original index
+
         sorted_chunks = sorted(response, key=lambda p: p.payload.get("chunk_index", 0))
-        
-        # Reconstruct text
-        full_text = "\n\n".join([p.payload.get("text", "") for p in sorted_chunks])
-        return full_text
-        
-    except Exception as e:
-        logger.error(f"Failed to retrieve chunks for document {document_id}: {e}")
-        return ""
+        return "\n\n".join(p.payload.get("text", "") for p in sorted_chunks)
+    except Exception as exc:
+        logger.error("Failed to retrieve chunks for document %s: %s", document_id, exc)
+        raise RuntimeError(f"Qdrant retrieval failed: {exc}") from exc

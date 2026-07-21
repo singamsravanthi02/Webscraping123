@@ -5,6 +5,7 @@ from typing import Dict, Any
 from app.core.rate_limit import RateLimiterWrapper as RateLimiter
 
 from app.db.session import get_db
+from app.core.config import settings
 from app.domain.users.schemas import (
     UserCreate, UserLogin, TokenResponse, 
     VerifyOTPRequest, ResendOTPRequest,
@@ -24,7 +25,9 @@ def register(user_in: UserCreate, request: Request, db: Session = Depends(get_db
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
     user = auth_service.register_user(user_in, ip_address, user_agent)
-    return {"message": "Registration successful. Please check your email for the OTP."}
+    if settings.ENABLE_EMAIL_VERIFICATION:
+        return {"message": "Registration successful. Please check your email for the OTP."}
+    return {"message": "Registration successful. You can sign in now."}
 
 @router.post("/verify-otp", response_model=SuccessResponse, dependencies=[Depends(RateLimiter(times=10, seconds=60))])
 def verify_otp(req: VerifyOTPRequest, request: Request, db: Session = Depends(get_db)):
@@ -107,3 +110,19 @@ def reset_password(req: ResetPasswordRequest, request: Request, db: Session = De
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
     return auth_service.reset_password(req.email, req.otp, req.new_password, ip_address, user_agent)
+
+from pydantic import BaseModel
+class GoogleAuthRequest(BaseModel):
+    code: str
+
+@router.get("/google/login", response_model=Dict[str, str])
+def get_google_login_url(db: Session = Depends(get_db)):
+    auth_service = AuthService(db)
+    return {"url": auth_service.get_google_login_url()}
+
+@router.post("/google/callback", response_model=TokenResponse)
+async def google_callback(req: GoogleAuthRequest, request: Request, db: Session = Depends(get_db)):
+    auth_service = AuthService(db)
+    ip_address = request.client.host if request.client else None
+    device_info = request.headers.get("user-agent")
+    return await auth_service.google_callback(req.code, ip_address, device_info)

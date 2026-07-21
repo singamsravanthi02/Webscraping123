@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Clock, ShieldAlert, Code, BrainCircuit, Play, BarChart, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -9,24 +9,36 @@ import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import api from "@/lib/api";
 
+interface Assessment {
+  id: number;
+  title: string;
+  description?: string | null;
+  type: string;
+  duration_minutes: number;
+  isProctored?: boolean;
+}
+
 export default function AssessmentsDashboard() {
-  const [assessments, setAssessments] = useState<any[]>([]);
+  const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    fetchAssessments();
-  }, []);
-
-  const fetchAssessments = async () => {
+  const fetchAssessments = useCallback(async () => {
     try {
-      const res = await api.get("/assessments");
+      const res = await api.get<Assessment[]>("/assessments");
       setAssessments(res.data);
     } catch (error) {
       console.error(error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchAssessments();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchAssessments]);
 
   const getIcon = (type: string) => {
     if (type.includes("technical") || type.includes("coding")) return Code;

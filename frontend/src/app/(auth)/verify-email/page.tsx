@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import { FEATURE_FLAGS } from "@/lib/feature-flags";
+import { getErrorMessage } from "@/lib/utils";
 
 const verifySchema = z.object({
   token: z.string().min(6, "Please enter a valid 6-digit verification code").max(6),
@@ -20,16 +22,19 @@ const verifySchema = z.object({
 
 type VerifyFormValues = z.infer<typeof verifySchema>;
 
-export default function VerifyEmailPage() {
+function VerifyEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
-  const [email, setEmail] = useState<string | null>(null);
+  const email = searchParams.get("email");
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   useEffect(() => {
-    const emailParam = searchParams.get("email");
-    if (emailParam) setEmail(emailParam);
-  }, [searchParams]);
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCooldown]);
 
   const {
     register,
@@ -41,6 +46,28 @@ export default function VerifyEmailPage() {
       token: "",
     },
   });
+
+  if (!FEATURE_FLAGS.emailVerification) {
+    return (
+      <div className="w-full max-w-md mx-auto">
+        <Card className="border-indigo-100/50 shadow-xl shadow-indigo-500/5 bg-white/80 backdrop-blur-xl text-center">
+          <CardHeader className="space-y-4 pb-6">
+            <CardTitle className="text-2xl font-bold tracking-tight text-gray-900">
+              Email verification is disabled
+            </CardTitle>
+            <CardDescription className="text-gray-500">
+              You can sign in directly with your email and password in development mode.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => router.push("/login")}>
+              Go to login
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const onSubmit = async (data: VerifyFormValues) => {
     if (!email) {
@@ -66,8 +93,8 @@ export default function VerifyEmailPage() {
 
       toast.success("Email verified successfully! You can now log in.");
       router.push("/login");
-    } catch (error: any) {
-      toast.error(error.message || "Invalid or expired token. Please try again.");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Invalid or expired token. Please try again."));
     } finally {
       setIsLoading(false);
     }
@@ -95,9 +122,10 @@ export default function VerifyEmailPage() {
         throw new Error(errorData.detail || "Resend failed");
       }
 
+      setResendCooldown(60);
       toast.success("A new verification code has been sent to your email.");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to resend code.");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Failed to resend code."));
     }
   };
 
@@ -117,7 +145,7 @@ export default function VerifyEmailPage() {
               Verify your email
             </CardTitle>
             <CardDescription className="text-gray-500 max-w-xs mx-auto">
-              We've sent a 6-digit verification code to <span className="font-semibold">{email || 'your email'}</span>. Please enter it below.
+              We&apos;ve sent a 6-digit verification code to <span className="font-semibold">{email || 'your email'}</span>. Please enter it below.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -162,14 +190,27 @@ export default function VerifyEmailPage() {
           </CardContent>
           <CardFooter className="flex justify-center border-t border-gray-100 pt-6">
             <div className="text-sm text-gray-500">
-              Didn't receive an email?{" "}
-              <button onClick={handleResend} type="button" className="font-semibold text-indigo-600 hover:text-indigo-500 disabled:opacity-50">
-                Resend code
+              Didn&apos;t receive an email?{" "}
+              <button 
+                onClick={handleResend} 
+                type="button" 
+                disabled={resendCooldown > 0}
+                className="font-semibold text-indigo-600 hover:text-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend code"}
               </button>
             </div>
           </CardFooter>
         </Card>
       </motion.div>
     </div>
+  );
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>}>
+      <VerifyEmailContent />
+    </Suspense>
   );
 }

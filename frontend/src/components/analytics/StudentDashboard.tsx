@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, BarChart, Bar, Cell } from "recharts";
 import { Target, TrendingUp, BrainCircuit, Activity, FileText } from "lucide-react";
 import { CustomHeatmap } from "./CustomHeatmap";
@@ -8,15 +7,24 @@ import { CustomHeatmap } from "./CustomHeatmap";
 import { useState, useEffect } from "react";
 import api from "@/lib/api";
 
+type ProfileAnalytics = {
+  readiness_score?: number;
+  resume_score?: number;
+  ai_recommendation?: string;
+  test_performance?: Record<string, number>;
+  subject_strengths?: Record<string, number>;
+  skills_breakdown?: Record<string, number>;
+};
+
 export const StudentDashboard = () => {
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<ProfileAnalytics>({});
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchProfile = async () => {
       try {
         const res = await api.get("/users/me");
-        setProfile(res.data?.profile_data || {});
+        setProfile((res.data?.profile_data || {}) as ProfileAnalytics);
       } catch (error) {
         console.error("Failed to load student analytics", error);
         setProfile({});
@@ -37,17 +45,17 @@ export const StudentDashboard = () => {
   // Convert test_performance dict to array for Recharts, or empty
   const performanceData = Object.entries(profile.test_performance || {}).map(([key, val]) => ({
     name: key.replace("practice_quiz_", "Quiz "),
-    score: val
+    score: Number(val)
   }));
 
   const subjectData = Object.entries(profile.subject_strengths || {}).map(([key, val]) => ({
     subject: key,
-    score: val
+    score: Number(val)
   }));
 
   const skillsData = Object.entries(profile.skills_breakdown || {}).map(([key, val]) => ({
     subject: key,
-    A: val,
+    A: Number(val),
     fullMark: 100
   }));
   
@@ -177,7 +185,7 @@ export const StudentDashboard = () => {
                 <YAxis dataKey="subject" type="category" axisLine={false} tickLine={false} tick={{fill: '#9ca3af'}} />
                 <Tooltip cursor={{fill: '#2a2a35'}} contentStyle={{ backgroundColor: '#1a1a24', border: '1px solid #2a2a35', borderRadius: '8px', color: '#fff' }} />
                 <Bar dataKey="score" radius={[0, 4, 4, 0]}>
-                  {subjectData.map((entry: any, index: number) => (
+                  {subjectData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.score > 70 ? '#10b981' : entry.score > 55 ? '#f59e0b' : '#ef4444'} />
                   ))}
                 </Bar>

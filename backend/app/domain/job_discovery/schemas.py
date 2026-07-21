@@ -77,8 +77,8 @@ class AIJobQueryResponse(BaseModel):
 
 
 class JobRankingResponse(BaseModel):
-    id: int
-    job_id: int
+    id: Optional[int] = None
+    job_id: Optional[int] = None
     query_id: Optional[int] = None
     rank_score: int
     reason: Optional[str] = None
@@ -88,7 +88,7 @@ class JobRankingResponse(BaseModel):
     expected_difficulty: Optional[str] = None
     ai_recommendation: Optional[str] = None
     rank_index: Optional[int] = None
-    refreshed_at: datetime
+    refreshed_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -96,9 +96,18 @@ class JobRankingResponse(BaseModel):
 
 class AIJobDiscoveryResponse(BaseModel):
     profile: Optional[StudentSearchProfileResponse] = None
-    queries: List[AIJobQueryResponse] = []
+    queries: List[str] = []
     rankings: List[JobRankingResponse] = []
     jobs: List[JobResponse] = []
+    metadata: Dict[str, Any] = {}
+
+
+class AIChatResponse(BaseModel):
+    assistant_message: str
+    queries: List[str] = []
+    jobs: List[JobResponse] = []
+    rankings: List[JobRankingResponse] = []
+    profile: Optional[StudentSearchProfileResponse] = None
     metadata: Dict[str, Any] = {}
 
 

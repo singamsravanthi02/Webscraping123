@@ -1,12 +1,30 @@
 "use client";
 
-import { useState, useEffect, useRef, use } from "react";
+import { useState, useEffect, useRef, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Mic, MicOff, Send, Maximize, Minimize, StopCircle, User, Loader2 } from "lucide-react";
 import api from "@/lib/api";
 
 interface Message {
   id?: number;
+  role: "system" | "user" | "ai";
+  content: string;
+}
+
+interface SpeechRecognitionEventLike {
+  results: Array<Array<{ transcript: string }>>;
+}
+
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+interface InterviewMessageResponse {
   role: "system" | "user" | "ai";
   content: string;
 }
@@ -24,46 +42,48 @@ export default function LiveInterview({ params }: { params: Promise<{ id: string
   const [timer, setTimer] = useState(0);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Initialize Speech Recognition
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.continuous = false;
-        recognitionRef.current.interimResults = false;
-        
-        recognitionRef.current.onresult = (event: any) => {
-          const text = event.results[0][0].transcript;
-          setInputText(text);
-          sendMessage(text);
-        };
-        
-        recognitionRef.current.onend = () => {
-          setIsRecording(false);
-        };
-      }
+  const speak = useCallback((text: string) => {
+    if (!isVoiceMode || !("speechSynthesis" in window)) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find((v) => v.lang.includes("en-US") && v.name.includes("Google")) || voices[0];
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
     }
-  }, [id]); // Add id to dependency array, but it's mostly to run once on client
 
-  useEffect(() => {
-    startInterviewSession();
-    const interval = setInterval(() => setTimer(t => t + 1), 1000);
-    return () => clearInterval(interval);
-  }, [id]);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    window.speechSynthesis.speak(utterance);
+  }, [isVoiceMode]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isAiThinking]);
+  const sendMessage = useCallback(async (text: string = inputText) => {
+    if (!text.trim()) return;
 
-  const startInterviewSession = async () => {
+    const userMsg: Message = { role: "user", content: text };
+    setMessages((prev) => [...prev, userMsg]);
+    setInputText("");
+    setIsAiThinking(true);
+
+    try {
+      const res = await api.post(`/interviews/${id}/message`, { content: text });
+      const aiMsg: Message = { role: "ai", content: res.data.content };
+      setMessages((prev) => [...prev, aiMsg]);
+      speak(aiMsg.content);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsAiThinking(false);
+    }
+  }, [id, inputText, speak]);
+
+  const startInterviewSession = useCallback(async () => {
     setIsAiThinking(true);
     try {
-      // First check if it already started, wait, actually our backend throws if already started.
-      // We should ideally fetch first, if pending, start.
       const getRes = await api.get(`/interviews/${id}`);
       if (getRes.data.status === 'pending') {
         const res = await api.post(`/interviews/${id}/start`);
@@ -73,7 +93,7 @@ export default function LiveInterview({ params }: { params: Promise<{ id: string
       } else {
         // Load existing messages
         const res = await api.get(`/interviews/${id}`);
-        const chat = res.data.messages.filter((m: any) => m.role !== 'system');
+        const chat = res.data.messages.filter((m: InterviewMessageResponse) => m.role !== "system");
         setMessages(chat);
         // Do not speak on resume
       }
@@ -82,28 +102,7 @@ export default function LiveInterview({ params }: { params: Promise<{ id: string
     } finally {
       setIsAiThinking(false);
     }
-  };
-
-  const speak = (text: string) => {
-    if (!isVoiceMode || !('speechSynthesis' in window)) return;
-    
-    // Stop any current speech
-    window.speechSynthesis.cancel();
-    
-    const utterance = new SpeechSynthesisUtterance(text);
-    
-    // Try to find a good English voice
-    const voices = window.speechSynthesis.getVoices();
-    const preferredVoice = voices.find(v => v.lang.includes('en-US') && v.name.includes('Google')) || voices[0];
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
-    }
-    
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    
-    window.speechSynthesis.speak(utterance);
-  };
+  }, [id, speak]);
 
   const toggleRecording = () => {
     if (isRecording) {
@@ -114,26 +113,6 @@ export default function LiveInterview({ params }: { params: Promise<{ id: string
       setInputText("");
       recognitionRef.current?.start();
       setIsRecording(true);
-    }
-  };
-
-  const sendMessage = async (text: string = inputText) => {
-    if (!text.trim()) return;
-    
-    const userMsg: Message = { role: "user", content: text };
-    setMessages(prev => [...prev, userMsg]);
-    setInputText("");
-    setIsAiThinking(true);
-    
-    try {
-      const res = await api.post(`/interviews/${id}/message`, { content: text });
-      const aiMsg: Message = { role: "ai", content: res.data.content };
-      setMessages(prev => [...prev, aiMsg]);
-      speak(aiMsg.content);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setIsAiThinking(false);
     }
   };
 
@@ -165,6 +144,47 @@ export default function LiveInterview({ params }: { params: Promise<{ id: string
     const s = (seconds % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
   };
+
+  // Initialize Speech Recognition
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const speechWindow = window as Window & {
+        SpeechRecognition?: new () => SpeechRecognitionLike;
+        webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+      };
+      const SpeechRecognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        recognitionRef.current = new SpeechRecognition();
+        recognitionRef.current.continuous = false;
+        recognitionRef.current.interimResults = false;
+
+        recognitionRef.current.onresult = (event: SpeechRecognitionEventLike) => {
+          const text = event.results[0][0].transcript;
+          setInputText(text);
+          void sendMessage(text);
+        };
+
+        recognitionRef.current.onend = () => {
+          setIsRecording(false);
+        };
+      }
+    }
+  }, [sendMessage]);
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      void startInterviewSession();
+    }, 0);
+    const interval = setInterval(() => setTimer((t) => t + 1), 1000);
+    return () => {
+      window.clearTimeout(timerId);
+      clearInterval(interval);
+    };
+  }, [startInterviewSession]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isAiThinking]);
 
   return (
     <div ref={containerRef} className="flex flex-col h-screen bg-[#0f0f13] text-white">

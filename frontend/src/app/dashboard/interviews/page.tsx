@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Clock, Brain, UserPlus, Code2, FileText, ChevronRight, MessageSquare, Mic } from "lucide-react";
 import api from "@/lib/api";
@@ -32,18 +32,21 @@ export default function InterviewsDashboard() {
   const [resumeText, setResumeText] = useState("");
   const [jobDescription, setJobDescription] = useState("");
 
-  useEffect(() => {
-    fetchInterviews();
-  }, []);
-
-  const fetchInterviews = async () => {
+  const fetchInterviews = useCallback(async () => {
     try {
-      const response = await api.get("/interviews");
+      const response = await api.get<Interview[]>("/interviews");
       setInterviews(response.data);
     } catch (error) {
       console.error("Failed to fetch interviews:", error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchInterviews();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchInterviews]);
 
   const startNewInterview = async (e: React.FormEvent) => {
     e.preventDefault();

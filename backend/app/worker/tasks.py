@@ -1,7 +1,7 @@
 from .celery_app import celery_app
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.domain.notifications.models import NotificationLog, NotificationStatus
@@ -37,7 +37,7 @@ def dispatch_notification_task(self, log_id: int):
         
         if success:
             log.status = NotificationStatus.SENT
-            log.sent_at = datetime.utcnow()
+            log.sent_at = datetime.now(timezone.utc)
             db.commit()
             logger.info(f"Successfully sent {log.channel} to User ID {log.user_id}")
             return True
@@ -98,30 +98,12 @@ def process_knowledge_document(document_id: int, file_path: str):
         doc.status = DocumentStatus.PROCESSING
         db.commit()
         
-        # 1. Extract Text
+        from app.services.document_text_extractor import extract_document_text
+
+        raw_text = extract_document_text(file_path)
         ext = file_path.split('.')[-1].lower()
-        raw_text = ""
-        
-        if ext == 'txt' or ext == 'md':
-            with open(file_path, 'r', encoding='utf-8') as f:
-                raw_text = f.read()
-        elif ext == 'pdf':
-            import pypdf
-            with open(file_path, 'rb') as f:
-                pdf = pypdf.PdfReader(f)
-                for page in pdf.pages:
-                    raw_text += page.extract_text() + "\n"
-        elif ext == 'docx':
-            import docx
-            d = docx.Document(file_path)
-            raw_text = "\n".join([p.text for p in d.paragraphs])
-        elif ext == 'pptx':
-            import pptx
-            p = pptx.Presentation(file_path)
-            for slide in p.slides:
-                for shape in slide.shapes:
-                    if hasattr(shape, "text"):
-                        raw_text += shape.text + "\n"
+        if not raw_text.strip():
+            raise ValueError(f"No text could be extracted from {file_path}")
                         
         # 2 & 3. Generate Embeddings & Store in Qdrant (Centralized)
         from app.domain.learning.services.qdrant_service import ingest_document, chunk_text
@@ -194,8 +176,8 @@ def generate_ai_content_for_document(document_id: int):
             logger.error("No text retrieved from Qdrant for document")
             return
             
-        # Truncate to first 25000 chars to avoid exceeding context window limits
-        sample_text = doc_text[:25000]
+        # Keep the context compact so structured output stays reliable.
+        sample_text = doc_text[:12000]
         context_text = f"Document Title: {doc.title}\nSource: {doc.source}\nSubject: {doc.subject}\n\n{sample_text}"
         
         metadata = {
@@ -297,20 +279,9 @@ def parse_resume_task(user_id: str, resume_url: str):
             logger.error(f"Resume file not found: {file_path}")
             return
             
-        # Extract text (assuming PDF for now)
-        raw_text = ""
-        ext = file_path.split('.')[-1].lower()
-        if ext == 'pdf':
-            import pypdf
-            with open(file_path, 'rb') as f:
-                pdf = pypdf.PdfReader(f)
-                for page in pdf.pages:
-                    raw_text += page.extract_text() + "\n"
-        elif ext == 'docx':
-            import docx
-            d = docx.Document(file_path)
-            raw_text = "\n".join([p.text for p in d.paragraphs])
-            
+        from app.services.document_text_extractor import extract_document_text
+
+        raw_text = extract_document_text(file_path)
         if not raw_text.strip():
             logger.error("No text extracted from resume")
             return
@@ -320,7 +291,10 @@ def parse_resume_task(user_id: str, resume_url: str):
         analysis = agent.analyze_resume(user.id, raw_text)
         
         # 2. Store Skills in User
-        extracted_skills = analysis.get("skills", [])
+        extracted_skills = list(dict.fromkeys(
+            (analysis.get("technical_skills") or [])
+            + (analysis.get("soft_skills") or [])
+        ))
         if extracted_skills:
             # Merge with existing skills avoiding duplicates
             existing = set(user.skills or [])
@@ -343,16 +317,19 @@ def parse_resume_task(user_id: str, resume_url: str):
         logger.info(f"Updated readiness score for user {user.id}: {score}")
         
         # 5. Trigger Job Matching Agent -> Generate Initial Recommendations
-        jobs = db.query(Job).all()
-        job_desc_list = [{"id": j.id, "title": j.title, "skills": j.extracted_skills} for j in jobs]
-        
-        if job_desc_list:
-            matching_agent = JobMatchingAgent()
-            profile = f"Email: {user.email}. User ID: {user.id}. Skills: {', '.join(user.skills or [])}. Goal: {user.career_goal}"
-            scores = matching_agent.match_jobs(user.id, profile, job_desc_list)
+        try:
+            jobs = db.query(Job).all()
+            job_desc_list = [{"id": j.id, "title": j.title, "skills": j.extracted_skills} for j in jobs]
             
-            # Just log them for now or create notifications (the aggregate jobs task already creates notifications)
-            logger.info(f"Generated {len(scores)} job recommendations for user {user.id}")
+            if job_desc_list:
+                matching_agent = JobMatchingAgent()
+                profile = f"Email: {user.email}. User ID: {user.id}. Skills: {', '.join(user.skills or [])}. Goal: {user.career_goal}"
+                scores = matching_agent.match_jobs(user.id, profile, job_desc_list)
+                
+                # Just log them for now or create notifications (the aggregate jobs task already creates notifications)
+                logger.info(f"Generated {len(scores)} job recommendations for user {user.id}")
+        except Exception as job_exc:
+            logger.warning("Job matching skipped for user %s after resume parse: %s", user.id, job_exc)
             
     except Exception as e:
         logger.error(f"Error parsing resume for user {user_id}: {e}")
@@ -543,5 +520,117 @@ def refresh_ai_job_recommendations_task(user_id: int | None = None):
                 logger.warning("Failed to refresh AI jobs for user %s: %s", user.id, exc)
         logger.info("AI job discovery refresh completed for %s user(s)", refreshed)
         return {"refreshed": refreshed, "deleted_expired_queries": deleted}
+    finally:
+        db.close()
+
+
+@celery_app.task(name="app.worker.tasks.update_dashboard_analytics_task")
+def update_dashboard_analytics_task():
+    from app.domain.ai_orchestration.models import StudentAIMemory
+    from app.domain.jobs.models import Job
+    from app.domain.knowledge.models import Document
+    from app.domain.notifications.models import NotificationLog, NotificationStatus
+    from app.domain.users.models import User
+
+    db: Session = SessionLocal()
+    try:
+        active_users = db.query(User).filter(User.is_active == True).count()
+        job_count = db.query(Job).count()
+        document_count = db.query(Document).count()
+        pending_notifications = db.query(NotificationLog).filter(NotificationLog.status == NotificationStatus.PENDING).count()
+        scores = [
+            memory.placement_readiness_score
+            for memory in db.query(StudentAIMemory).all()
+            if memory.placement_readiness_score is not None
+        ]
+        average_score = round(sum(scores) / len(scores), 2) if scores else 0.0
+        summary = {
+            "active_users": active_users,
+            "jobs": job_count,
+            "documents": document_count,
+            "pending_notifications": pending_notifications,
+            "average_placement_readiness": average_score,
+        }
+        logger.info("Dashboard analytics refreshed: %s", summary)
+        return summary
+    finally:
+        db.close()
+
+
+@celery_app.task(name="app.worker.tasks.send_notification_digest_task")
+def send_notification_digest_task():
+    from datetime import datetime, timedelta, timezone
+
+    from app.domain.notifications.models import NotificationChannel, NotificationLog, NotificationStatus
+    from app.domain.users.models import User
+
+    db: Session = SessionLocal()
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+        users = db.query(User).filter(User.is_active == True).all()
+        queued = 0
+        for user in users:
+            recent_count = (
+                db.query(NotificationLog)
+                .filter(NotificationLog.user_id == user.id, NotificationLog.created_at >= cutoff)
+                .count()
+            )
+            if not recent_count:
+                continue
+
+            digest = NotificationLog(
+                user_id=user.id,
+                template_name="notification_digest",
+                channel=NotificationChannel.IN_APP,
+                context_data={"recent_notifications": recent_count},
+                status=NotificationStatus.PENDING,
+            )
+            db.add(digest)
+            db.flush()
+            dispatch_notification_task.delay(digest.id)
+            queued += 1
+
+        db.commit()
+        logger.info("Queued %s notification digest(s)", queued)
+        return {"queued": queued}
+    except Exception as exc:
+        db.rollback()
+        logger.error("Notification digest task failed: %s", exc)
+        raise
+    finally:
+        db.close()
+
+
+@celery_app.task(name="app.worker.tasks.reanalyze_resumes_task")
+def reanalyze_resumes_task():
+    from app.domain.users.models import User
+
+    db: Session = SessionLocal()
+    try:
+        users = db.query(User).filter(User.is_active == True, User.resume_url.isnot(None)).all()
+        queued = 0
+        for user in users:
+            parse_resume_task.delay(str(user.id), user.resume_url)
+            queued += 1
+        logger.info("Queued resume reanalysis for %s user(s)", queued)
+        return {"queued": queued}
+    finally:
+        db.close()
+
+
+@celery_app.task(name="app.worker.tasks.refresh_career_dna_task")
+def refresh_career_dna_task():
+    from app.domain.ai_orchestration.placement_engine import placement_engine
+    from app.domain.users.models import User
+
+    db: Session = SessionLocal()
+    try:
+        users = db.query(User).filter(User.is_active == True).all()
+        refreshed = 0
+        for user in users:
+            placement_engine.calculate_score(user.id)
+            refreshed += 1
+        logger.info("Career DNA refreshed for %s user(s)", refreshed)
+        return {"refreshed": refreshed}
     finally:
         db.close()

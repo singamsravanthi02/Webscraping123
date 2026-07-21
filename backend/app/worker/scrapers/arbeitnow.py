@@ -13,10 +13,10 @@ class ArbeitnowScraper(BaseJobScraper):
         """
         logger.info("Scraping Arbeitnow for jobs...")
         jobs = []
-        url = "https://arbeitnow.com/api/job-board-api"
+        url = "https://www.arbeitnow.com/api/job-board-api"
         
         try:
-            with httpx.Client(timeout=10.0) as client:
+            with httpx.Client(timeout=10.0, follow_redirects=True) as client:
                 response = client.get(url)
                 response.raise_for_status()
                 data = response.json()

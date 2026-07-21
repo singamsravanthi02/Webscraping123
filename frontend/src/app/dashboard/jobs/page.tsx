@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { 
   Search, MapPin, Briefcase, DollarSign, 
@@ -30,20 +30,30 @@ interface Job {
   suggested_improvements?: string[];
 }
 
+interface TrendingJobEntry {
+  job?: Partial<Job>;
+  avg_score: number;
+  hits: number;
+}
+
+interface JobRanking {
+  rank_score?: number;
+  reason?: string;
+  missing_skills?: string[];
+  learning_recommendations?: string[];
+  suggested_improvements?: string[];
+}
+
 export default function JobsDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [trendingJobs, setTrendingJobs] = useState<any[]>([]);
+  const [trendingJobs, setTrendingJobs] = useState<TrendingJobEntry[]>([]);
   const [assistantMessage, setAssistantMessage] = useState<string>("Tell me what you want to find and I'll search for the best matches.");
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetchJobs();
-  }, []);
-
-  const fetchJobs = async () => {
+  const fetchJobs = useCallback(async () => {
     setIsLoading(true);
     try {
       const [jobsRes, bookmarkedResponse, trendingRes] = await Promise.all([
@@ -51,8 +61,8 @@ export default function JobsDashboard() {
         api.get("/jobs/bookmarks"),
         api.get("/jobs/trending"),
       ]);
-      const bookmarkedIds = new Set(bookmarkedResponse.data.map((b: any) => b.job_id));
-      const formattedJobs = jobsRes.data.map((job: any) => ({
+      const bookmarkedIds = new Set(bookmarkedResponse.data.map((b: { job_id: number }) => b.job_id));
+      const formattedJobs: Job[] = jobsRes.data.map((job: Job) => ({
         ...job,
         salary_range: job.salary_range || "Not specified",
         experience_required: job.experience_required || "Not specified",
@@ -65,7 +75,14 @@ export default function JobsDashboard() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchJobs();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchJobs]);
 
   const searchJobs = async (query: string) => {
     if (!query.trim()) {
@@ -76,9 +93,9 @@ export default function JobsDashboard() {
     try {
       const response = await api.post("/jobs/chat", { message: query, limit: 20 });
       const bookmarkedResponse = await api.get("/jobs/bookmarks");
-      const bookmarkedIds = new Set(bookmarkedResponse.data.map((b: any) => b.job_id));
-      const formattedJobs = (response.data.jobs || []).map((job: any, index: number) => {
-        const ranking = response.data.rankings?.[index];
+      const bookmarkedIds = new Set(bookmarkedResponse.data.map((b: { job_id: number }) => b.job_id));
+      const formattedJobs: Job[] = (response.data.jobs || []).map((job: Job, index: number) => {
+        const ranking = response.data.rankings?.[index] as JobRanking | undefined;
         return {
           ...job,
           salary_range: job.salary_range || "Not specified",
@@ -107,7 +124,7 @@ export default function JobsDashboard() {
       const response = await api.post("/jobs/refresh");
       const jobsRes = await api.get("/jobs/recommended");
       setJobs(
-        jobsRes.data.map((job: any) => ({
+        jobsRes.data.map((job: Job) => ({
           ...job,
           salary_range: job.salary_range || "Not specified",
           experience_required: job.experience_required || "Not specified",

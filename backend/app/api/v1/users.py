@@ -112,3 +112,36 @@ def upload_profile_picture(
     _refresh_job_discovery_for_user(db, current_user)
     
     return {"message": "Profile picture uploaded successfully"}
+
+from pydantic import BaseModel
+
+class OnboardingStepData(BaseModel):
+    step_id: str
+    data: Dict[str, Any]
+
+@router.patch("/onboard/step", response_model=SuccessResponse)
+def update_onboarding_step(
+    step_data: OnboardingStepData,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    profile_data = current_user.profile_data or {}
+    profile_data[step_data.step_id] = step_data.data
+    
+    # In SQLAlchemy JSONB requires explicit reassignment or flag_modified to detect changes
+    from sqlalchemy.orm.attributes import flag_modified
+    current_user.profile_data = profile_data
+    flag_modified(current_user, "profile_data")
+    
+    db.commit()
+    return {"message": "Step saved successfully"}
+
+@router.post("/onboard/complete", response_model=SuccessResponse)
+def complete_onboarding(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    current_user.profile_completed = True
+    db.commit()
+    _refresh_job_discovery_for_user(db, current_user)
+    return {"message": "Onboarding completed successfully"}

@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import { FEATURE_FLAGS } from "@/lib/feature-flags";
+import { getErrorMessage } from "@/lib/utils";
 
 const forgotPasswordSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -36,6 +38,28 @@ export default function ForgotPasswordPage() {
     },
   });
 
+  if (!FEATURE_FLAGS.forgotPassword) {
+    return (
+      <div className="w-full max-w-md mx-auto">
+        <Card className="border-indigo-100/50 shadow-xl shadow-indigo-500/5 bg-white/80 backdrop-blur-xl text-center">
+          <CardHeader className="space-y-1 pb-6">
+            <CardTitle className="text-2xl font-bold tracking-tight text-gray-900">
+              Password reset is disabled
+            </CardTitle>
+            <CardDescription className="text-gray-500">
+              Development mode keeps password reset turned off.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => router.push("/login")}>
+              Back to login
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const onSubmit = async (data: ForgotPasswordFormValues) => {
     setIsLoading(true);
     try {
@@ -55,8 +79,8 @@ export default function ForgotPasswordPage() {
 
       toast.success("Password reset instructions sent. Please check your email.");
       router.push(`/reset-password?email=${encodeURIComponent(data.email)}`);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to request password reset.");
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Failed to request password reset."));
     } finally {
       setIsLoading(false);
     }

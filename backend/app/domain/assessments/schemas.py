@@ -10,7 +10,7 @@ class QuestionBase(BaseModel):
     difficulty: int
     type: QuestionType
     content: str
-    options: Optional[Dict[str, Any]] = None
+    options: Optional[Any] = None
 
     class Config:
         from_attributes = True

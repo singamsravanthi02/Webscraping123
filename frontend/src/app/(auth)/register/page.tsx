@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { motion } from "framer-motion";
@@ -13,9 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PasswordStrengthIndicator } from "@/components/auth/PasswordStrengthIndicator";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FEATURE_FLAGS } from "@/lib/feature-flags";
+import { getErrorMessage } from "@/lib/utils";
 
 const registerSchema = z.object({
   fullName: z.string().min(2, "Full name must be at least 2 characters"),
@@ -45,7 +48,7 @@ export default function RegisterPage() {
     register,
     handleSubmit,
     setValue,
-    watch,
+    control,
     formState: { errors },
   } = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
@@ -59,7 +62,8 @@ export default function RegisterPage() {
     },
   });
 
-  const selectedRole = watch("role");
+  const selectedRole = useWatch({ control, name: "role" });
+  const password = useWatch({ control, name: "password" });
 
   const onSubmit = async (data: RegisterFormValues) => {
     setIsLoading(true);
@@ -85,11 +89,18 @@ export default function RegisterPage() {
         throw new Error(errorData.detail || "Registration failed");
       }
 
-      toast.success("Registration successful! Please check your email for the OTP.");
-      // Pass email to verify page
-      router.push(`/verify-email?email=${encodeURIComponent(data.email)}`);
-    } catch (error: any) {
-      toast.error(error.message || "Registration failed. Please try again.");
+      toast.success(
+        FEATURE_FLAGS.emailVerification
+          ? "Registration successful! Please check your email for the OTP."
+          : "Registration successful! You can sign in now."
+      );
+      router.push(
+        FEATURE_FLAGS.emailVerification
+          ? `/verify-email?email=${encodeURIComponent(data.email)}`
+          : "/login"
+      );
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "Registration failed. Please try again."));
     } finally {
       setIsLoading(false);
     }
@@ -162,7 +173,7 @@ export default function RegisterPage() {
                 <Label>Account Type</Label>
                 <Select
                   disabled={isLoading}
-                  onValueChange={(value) => setValue("role", value as any)}
+                  onValueChange={(value) => setValue("role", value as RegisterFormValues["role"])}
                   defaultValue={selectedRole}
                 >
                   <SelectTrigger className="bg-gray-50/50">
@@ -196,6 +207,7 @@ export default function RegisterPage() {
                       disabled={isLoading}
                     />
                   </div>
+                  <PasswordStrengthIndicator password={password} />
                   {errors.password && <p className="text-xs text-red-500">{errors.password.message}</p>}
                 </div>
 

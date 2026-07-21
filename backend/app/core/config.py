@@ -43,14 +43,26 @@ class Settings(BaseSettings):
     
     # AI 
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL_FLASH: str = "gemini-1.5-flash"
-    GEMINI_MODEL_PRO: str = "gemini-1.5-pro"
+    GEMINI_MODEL_FLASH: str = "gemini-2.5-flash"
+    GEMINI_MODEL_PRO: str = "gemini-2.5-pro"
+    GEMINI_MODEL_FLASH_LITE: str = "gemini-flash-lite-latest"
+    AI_REQUEST_TIMEOUT_SECONDS: int = 60
+    AI_RETRY_ATTEMPTS: int = 2
+    AI_CACHE_TTL_SECONDS: int = 300
     SERPAPI_KEY: Optional[str] = None
     SERPER_API_KEY: Optional[str] = None
     GOOGLE_CSE_API_KEY: Optional[str] = None
     GOOGLE_CSE_ID: Optional[str] = None
     
-    # Email
+    # Google OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = "http://localhost:3000/callback/google"
+    ENABLE_EMAIL_VERIFICATION: bool = False
+    ENABLE_GOOGLE_AUTH: bool = False
+    ENABLE_FORGOT_PASSWORD: bool = False
+
+    # Search & Scraping
     BREVO_API_KEY: Optional[str] = None
     EMAIL_FROM: str = "noreply@spip.local"
     EMAIL_FROM_NAME: str = "SPIP"
@@ -84,6 +96,21 @@ class Settings(BaseSettings):
     )
 
 settings = Settings()
+
+_MODEL_ALIASES = {
+    "gemini-1.5-flash": "gemini-2.5-flash",
+    "models/gemini-1.5-flash": "gemini-2.5-flash",
+    "gemini-1.5-pro": "gemini-2.5-pro",
+    "models/gemini-1.5-pro": "gemini-2.5-pro",
+    "gemini-1.5-flash-lite": "gemini-flash-lite-latest",
+    "models/gemini-1.5-flash-lite": "gemini-flash-lite-latest",
+}
+if settings.GEMINI_MODEL_FLASH in _MODEL_ALIASES:
+    settings.GEMINI_MODEL_FLASH = _MODEL_ALIASES[settings.GEMINI_MODEL_FLASH]
+if settings.GEMINI_MODEL_PRO in _MODEL_ALIASES:
+    settings.GEMINI_MODEL_PRO = _MODEL_ALIASES[settings.GEMINI_MODEL_PRO]
+if settings.GEMINI_MODEL_FLASH_LITE in _MODEL_ALIASES:
+    settings.GEMINI_MODEL_FLASH_LITE = _MODEL_ALIASES[settings.GEMINI_MODEL_FLASH_LITE]
 
 if settings.JWT_SECRET in ["CHANGE_ME_TO_A_RANDOM_64_CHARACTER_SECRET", ""] or len(settings.JWT_SECRET) < 32:
     warnings.warn("SECURITY WARNING: JWT_SECRET is weak or using default placeholder. This is unsafe for production.")

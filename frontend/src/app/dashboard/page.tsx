@@ -16,6 +16,14 @@ import {
 } from "@/components/ui/table";
 import api from "@/lib/api";
 
+type Job = {
+  id: number;
+  company: string;
+  title: string;
+  match_score?: number;
+  apply_link?: string | null;
+};
+
 export default function DashboardOverview() {
   const [stats, setStats] = useState([
     { title: "Overall Readiness", value: "...", change: "Loading", icon: Target, trend: "up" },
@@ -23,7 +31,7 @@ export default function DashboardOverview() {
     { title: "Skill Score", value: "...", change: "Loading", icon: Activity, trend: "up" },
     { title: "Job Matches", value: "...", change: "Loading", icon: TrendingUp, trend: "up" },
   ]);
-  const [recommendedJobs, setRecommendedJobs] = useState<any[]>([]);
+  const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -45,13 +53,7 @@ export default function DashboardOverview() {
         ]);
 
         // Take top 3 jobs
-        setRecommendedJobs(jobsRes.data.slice(0, 3).map((job: any) => ({
-          id: job.id,
-          company: job.company,
-          role: job.title,
-          match: `${job.match_score || 85}%`,
-          apply_link: job.apply_link
-        })));
+        setRecommendedJobs(jobsRes.data.slice(0, 3).map((job: Job) => job));
         
       } catch (error) {
         console.error("Failed to fetch dashboard data:", error);
@@ -143,14 +145,14 @@ export default function DashboardOverview() {
                       </TableCell>
                     </TableRow>
                   ) : recommendedJobs.map((job) => (
-                    <TableRow key={job.id} className="hover:bg-secondary/50 cursor-pointer transition-colors" onClick={() => window.open(job.apply_link, '_blank')}>
+                    <TableRow key={job.id} className="hover:bg-secondary/50 cursor-pointer transition-colors" onClick={() => job.apply_link ? window.open(job.apply_link, '_blank') : undefined}>
                       <TableCell>
                         <div className="font-medium text-foreground">{job.company}</div>
-                        <div className="text-xs text-muted-foreground">{job.role}</div>
+                        <div className="text-xs text-muted-foreground">{job.title}</div>
                       </TableCell>
                       <TableCell>
                         <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
-                          {job.match}
+                          {`${job.match_score ?? 85}%`}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
