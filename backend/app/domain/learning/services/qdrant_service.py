@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.services.cache_service import cache as ai_cache
+from app.domain.knowledge.models import Document, DocumentChunk
 from app.domain.ai_orchestration.gateway import gateway
 
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "learning_materials"
 EMBEDDING_DIMENSION = 3072
+SEARCH_CACHE_TTL_SECONDS = 300
 
 qdrant_client = QdrantClient(
     url=settings.QDRANT_URL,
@@ -59,28 +64,36 @@ def ingest_document(
     semester: str | None = None,
     topic: str | None = None,
     keywords: List[str] | None = None,
+    extra_metadata: Dict[str, Any] | None = None,
+    chunk_size: int = 1000,
+    overlap: int = 200,
 ):
     _ensure_collection()
-    chunks = chunk_text(text_content)
+    chunks = chunk_text(text_content, chunk_size=chunk_size, overlap=overlap)
     points = []
+    ingestion_timestamp = (extra_metadata or {}).get("ingestion_timestamp") or datetime.now(timezone.utc).isoformat()
 
     for i, chunk in enumerate(chunks):
         embedding = get_embedding(chunk)
+        embedding_id = str(int(f"{document_id}{i:04d}"))
         points.append(
             PointStruct(
-                id=int(f"{document_id}{i:04d}"),
+                id=int(embedding_id),
                 vector=embedding,
                 payload={
                     "document_id": document_id,
                     "title": title,
                     "source_type": source_type,
                     "chunk_index": i,
+                    "embedding_id": embedding_id,
                     "text": chunk,
                     "subject": subject,
                     "unit": unit,
                     "semester": semester,
                     "topic": topic,
                     "keywords": keywords or [],
+                    **(extra_metadata or {}),
+                    "ingestion_timestamp": ingestion_timestamp,
                 },
             )
         )
@@ -89,8 +102,48 @@ def ingest_document(
         qdrant_client.upsert(collection_name=COLLECTION_NAME, points=points)
 
 
-def search_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+def _lookup_chunk_metadata(db: Session | None, document_id: Any, chunk_index: Any) -> Dict[str, Any]:
+    if db is None or document_id is None:
+        return {}
+
+    try:
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        chunk = (
+            db.query(DocumentChunk)
+            .filter(DocumentChunk.document_id == document_id, DocumentChunk.chunk_index == chunk_index)
+            .first()
+        )
+    except Exception:
+        return {}
+
+    page_number = getattr(chunk, "page_number", None)
+    chunk_number = int(chunk_index or 0) + 1 if chunk_index is not None else None
+    return {
+        "document": {
+            "id": getattr(doc, "id", document_id),
+            "title": getattr(doc, "title", None),
+            "source": getattr(doc, "source", None),
+            "url": getattr(doc, "url", None),
+            "subject": getattr(doc, "subject", None),
+            "department": getattr(doc, "department", None),
+            "semester": getattr(doc, "semester", None),
+            "unit": getattr(doc, "unit", None),
+            "module": getattr(doc, "module", None),
+            "keywords": list(getattr(doc, "keywords", []) or []),
+        },
+        "page_number": page_number,
+        "chunk_number": chunk_number,
+    }
+
+
+def search_documents(query: str, limit: int = 5, db: Session | None = None) -> List[Dict[str, Any]]:
     _ensure_collection()
+    normalized_query = " ".join((query or "").split()).lower()
+    cache_key = f"qdrant-search:v1:{limit}:{normalized_query}"
+    cached = ai_cache.get(cache_key)
+    if isinstance(cached, list):
+        return cached
+
     query_vector = get_embedding(query)
     try:
         search_result = qdrant_client.query_points(
@@ -102,15 +155,32 @@ def search_documents(query: str, limit: int = 5) -> List[Dict[str, Any]]:
         results = []
         for hit in search_result:
             payload = hit.payload or {}
+            score = float(hit.score or 0.0)
+            document_id = payload.get("document_id")
+            chunk_index = payload.get("chunk_index")
+            metadata = _lookup_chunk_metadata(db, document_id, chunk_index)
             results.append(
                 {
-                    "score": hit.score,
-                    "title": payload.get("title"),
+                    "score": score,
+                    "embedding_distance": round(max(1.0 - score, 0.0), 4),
+                    "title": payload.get("title") or metadata.get("document", {}).get("title"),
                     "text": payload.get("text"),
-                    "source_type": payload.get("source_type"),
-                    "document_id": payload.get("document_id"),
+                    "source_type": payload.get("source_type") or metadata.get("document", {}).get("source"),
+                    "document_id": document_id,
+                    "chunk_index": chunk_index,
+                    "embedding_id": payload.get("embedding_id"),
+                    "chunk_number": metadata.get("chunk_number"),
+                    "page_number": metadata.get("page_number"),
+                    "metadata": metadata.get("document", {}),
+                    "source_page_url": payload.get("source_page_url"),
+                    "resource_url": payload.get("resource_url"),
+                    "google_drive_file_id": payload.get("google_drive_file_id"),
+                    "document_title": payload.get("document_title"),
+                    "resource_label": payload.get("resource_label"),
+                    "ingestion_timestamp": payload.get("ingestion_timestamp"),
                 }
             )
+        ai_cache.set(cache_key, results, SEARCH_CACHE_TTL_SECONDS)
         return results
     except Exception as exc:
         logger.error("Failed to search Qdrant: %s", exc)

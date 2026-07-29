@@ -3,9 +3,8 @@
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, Briefcase, BookOpen, Target, Settings, LogOut, Sparkles } from "lucide-react";
+import { LayoutDashboard, Briefcase, BookOpen, Target, Settings, LogOut, Sparkles, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/store/authStore";
 
 const navItems = [
@@ -13,6 +12,7 @@ const navItems = [
   { name: "Job Discovery", href: "/dashboard/jobs", icon: Briefcase },
   { name: "Mock Interviews", href: "/dashboard/interviews", icon: Target },
   { name: "Learning Paths", href: "/dashboard/learning", icon: BookOpen },
+  { name: "Notifications", href: "/dashboard/notifications", icon: Bell },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
@@ -52,11 +52,6 @@ export function Sidebar() {
       </div>
 
       <div className="p-6">
-        <div className="glass-card p-4 rounded-xl mb-4 text-center border border-border">
-          <h4 className="text-sm font-semibold mb-1 text-foreground">Upgrade to Pro</h4>
-          <p className="text-xs text-muted-foreground mb-3">Get unlimited AI mock interviews.</p>
-          <Button variant="default" className="w-full text-xs h-8">Upgrade</Button>
-        </div>
         <button
           type="button"
           className="flex w-full items-center gap-2 justify-start text-muted-foreground hover:text-destructive px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 hover:bg-secondary"

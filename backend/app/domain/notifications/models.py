@@ -42,6 +42,7 @@ class NotificationLog(Base):
     context_data = Column(JSONB, nullable=True)
     
     status = Column(Enum(NotificationStatus), default=NotificationStatus.PENDING, nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
     error_message = Column(Text, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

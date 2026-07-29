@@ -22,8 +22,6 @@ def cache_response(ttl: int = 300, key_prefix: str = "cache"):
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Generate cache key based on function name and kwargs
-            # (Simplified for demonstration)
             kwargs_str = "_".join([f"{k}:{v}" for k, v in kwargs.items() if isinstance(v, (str, int))])
             cache_key = f"{key_prefix}:{func.__name__}:{kwargs_str}"
             

@@ -11,6 +11,8 @@ class InterviewType(str, enum.Enum):
     BEHAVIORAL = "behavioral"
     CODING = "coding"
     RESUME = "resume"
+    SYSTEM_DESIGN = "system_design"
+    MOCK_COMPANY = "mock_company"
 
 class InterviewStatus(str, enum.Enum):
     PENDING = "pending"
@@ -35,6 +37,7 @@ class InterviewSession(Base, AuditMixin):
     
     resume_text = Column(Text, nullable=True) # Optional context for resume based interview
     job_description = Column(Text, nullable=True)
+    lock_violations = Column(JSONB, default=lambda: [], nullable=False)
     
     start_time = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=True)

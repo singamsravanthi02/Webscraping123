@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FEATURE_FLAGS } from "@/lib/feature-flags";
+import api from "@/lib/api";
 import { getErrorMessage } from "@/lib/utils";
 
 const registerSchema = z.object({
@@ -68,26 +69,14 @@ export default function RegisterPage() {
   const onSubmit = async (data: RegisterFormValues) => {
     setIsLoading(true);
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/auth/register`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            full_name: data.fullName,
-            email: data.email,
-            role: data.role,
-            password: data.password,
-            confirm_password: data.confirmPassword,
-            terms_accepted: data.termsAccepted,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Registration failed");
-      }
+      await api.post("/auth/register", {
+        full_name: data.fullName,
+        email: data.email,
+        role: data.role,
+        password: data.password,
+        confirm_password: data.confirmPassword,
+        terms_accepted: data.termsAccepted,
+      });
 
       toast.success(
         FEATURE_FLAGS.emailVerification
@@ -160,7 +149,7 @@ export default function RegisterPage() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="name@example.com"
+                    placeholder="student@spip.com"
                     className={`pl-9 bg-gray-50/50 ${errors.email ? "border-red-500" : ""}`}
                     {...register("email")}
                     disabled={isLoading}

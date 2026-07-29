@@ -6,7 +6,6 @@ from app.core.security import get_password_hash, verify_password, create_access_
 from app.core.config import settings
 from datetime import datetime, timedelta, timezone
 import secrets
-import random
 
 class AuthService:
     def __init__(self, db: Session):
@@ -77,7 +76,7 @@ class AuthService:
 
     def generate_and_send_otp(self, user: User, purpose: TokenType):
         # Generate 6-digit OTP
-        otp_plain = f"{random.randint(100000, 999999)}"
+        otp_plain = f"{secrets.randbelow(900000) + 100000}"
         otp_hash = get_password_hash(otp_plain)
 
         # Invalidate previous OTPs for this purpose
@@ -366,7 +365,7 @@ class AuthService:
         async with httpx.AsyncClient() as client:
             token_res = await client.post(token_url, data=token_data)
             if token_res.status_code != 200:
-                self._log_audit(None, "Google Login", "Failed - Token Exchange", ip_address, device_info, f"Code: {code[:10]}...")
+                self._log_audit(None, "Google Login", "Failed - Token Exchange", ip_address, device_info)
                 raise HTTPException(status_code=400, detail="Invalid Google authorization code")
                 
             token_json = token_res.json()
@@ -394,7 +393,7 @@ class AuthService:
         
         if not user:
             # Create a new user account automatically
-            random_pwd = secrets.token_urlsafe(32) # Dummy strong password
+            random_pwd = secrets.token_urlsafe(32)
             user = User(
                 email=email,
                 password_hash=get_password_hash(random_pwd),

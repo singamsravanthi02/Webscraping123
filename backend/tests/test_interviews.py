@@ -1,4 +1,5 @@
 import pytest
+import time
 from fastapi.testclient import TestClient
 from app.main import app
 from app.domain.interviews.models import InterviewStatus
@@ -64,5 +65,22 @@ def test_end_interview(mock_evaluate, db_session):
         end_res = client.post(f"/api/v1/interviews/{i_id}/end", headers=headers)
         assert end_res.status_code == 200
         data = end_res.json()
-        assert data["overall_grade"] == 8.2
-        assert data["strengths"] == ["Python"]
+        assert data["status"] == "processing"
+        assert data["result_ready"] is False
+        assert data["interview_id"] == i_id
+        assert data["timings"]["total_ms"] < 5000
+
+        deadline = time.monotonic() + 5
+        detail = None
+        while time.monotonic() < deadline:
+            detail_res = client.get(f"/api/v1/interviews/{i_id}", headers=headers)
+            assert detail_res.status_code == 200
+            detail = detail_res.json()
+            if detail.get("result"):
+                break
+            time.sleep(0.1)
+
+        assert detail is not None
+        assert detail.get("result") is not None
+        assert detail["result"]["overall_grade"] == 8.2
+        assert detail["result"]["strengths"] == ["Python"]

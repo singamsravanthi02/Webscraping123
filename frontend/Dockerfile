@@ -18,8 +18,7 @@ COPY . .
 # Next.js telemetry disable
 ENV NEXT_TELEMETRY_DISABLED 1
 
-# Build (Assuming next.config.js has output: 'standalone')
-# We inject a dummy build step here, in production ensure `output: "standalone"` is in next.config.mjs
+# Build the standalone Next.js production bundle.
 RUN npm run build
 
 # Production image, copy all the files and run next

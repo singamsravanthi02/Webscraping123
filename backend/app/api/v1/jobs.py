@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
+from typing import List, Optional
+
 from fastapi import APIRouter, Body, Depends
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
-from typing import Any, Dict, List, Optional
 
 from app.db.session import get_db
+from app.core.config import settings
 from app.domain.jobs.schemas import JobResponse, BookmarkResponse
 from app.services.job_service import JobService
 from app.api.dependencies.auth import get_current_active_user
@@ -16,11 +19,15 @@ from app.domain.job_discovery.schemas import (
     AIJobDiscoveryResponse,
     JobActionResponse,
     JobApplyRequest,
+    JobMonitorResponse,
+    JobMonitorSourceStat,
     JobSearchHistoryResponse,
     RefreshResponse,
     SearchRequest,
 )
+from app.domain.job_discovery.models import JobRecommendationEvent, JobSearchHistory
 from app.domain.job_discovery.services import AIJobDiscoveryService
+from app.domain.jobs.models import Job, JobSource, JobStatus
 
 router = APIRouter()
 
@@ -43,13 +50,13 @@ def get_jobs(
     if cached is not None:
         return cached
     jobs = discovery.recommended_jobs(current_user, limit=limit)
-    cache.set(cache_key, jsonable_encoder(jobs), expiration=120)
+    cache.set(cache_key, jsonable_encoder(jobs), expiration=settings.JOB_CACHE_TTL_MINUTES * 60)
     return jobs
 
 @router.get("/recommended", response_model=List[JobResponse])
-def get_recommended_jobs(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+def get_recommended_jobs(limit: int = 100, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     discovery = AIJobDiscoveryService(db)
-    return discovery.recommended_jobs(current_user)
+    return discovery.recommended_jobs(current_user, limit=limit)
 
 @router.post("/search", response_model=AIJobDiscoveryResponse)
 def search_jobs(
@@ -95,6 +102,54 @@ def chat_jobs(
 def trending_jobs(limit: int = 10, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     discovery = AIJobDiscoveryService(db)
     return jsonable_encoder(discovery.engine.get_trending(limit=limit))
+
+
+@router.get("/monitor", response_model=JobMonitorResponse)
+def job_monitor(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    latest_history = db.query(JobSearchHistory).order_by(JobSearchHistory.created_at.desc()).first()
+    latest_event = db.query(JobRecommendationEvent).order_by(JobRecommendationEvent.created_at.desc()).first()
+
+    monitor = {}
+    last_crawl_at = None
+    if latest_history and isinstance(latest_history.filters, dict):
+        monitor = latest_history.filters.get("job_monitor") or {}
+        last_crawl_at = latest_history.created_at
+    if (not monitor or not monitor.get("jobs_fetched")) and latest_event and isinstance(latest_event.payload, dict):
+        event_monitor = latest_event.payload.get("job_monitor") or {}
+        if event_monitor:
+            monitor = event_monitor
+            last_crawl_at = latest_event.created_at
+
+    provider_counts = monitor.get("provider_counts") if isinstance(monitor, dict) else {}
+    sources = [
+        JobMonitorSourceStat(name=name, count=int(count or 0))
+        for name, count in sorted((provider_counts or {}).items(), key=lambda item: item[1], reverse=True)
+    ]
+    active_jobs = (
+        db.query(Job)
+        .filter(Job.status == JobStatus.ACTIVE, Job.source != JobSource.MANUAL)
+        .count()
+    )
+    failures = int(monitor.get("failures", 0) or 0)
+    jobs_fetched = int(monitor.get("jobs_fetched", 0) or 0)
+    status = "healthy" if jobs_fetched > 0 and failures == 0 and last_crawl_at else "degraded"
+    if last_crawl_at and (datetime.now(timezone.utc) - last_crawl_at).total_seconds() > 86400:
+        status = "stale"
+
+    return JobMonitorResponse(
+        status=status,
+        scheduler_status="enabled" if settings.JOB_ENABLE_BACKGROUND_REFRESH else "disabled",
+        last_crawl_at=last_crawl_at,
+        jobs_fetched=jobs_fetched,
+        duplicates_removed=int(monitor.get("duplicates_removed", 0) or 0),
+        latency_ms=float(monitor.get("latency_ms", 0.0) or 0.0),
+        failures=failures,
+        cached=bool(monitor.get("cached", False)),
+        active_jobs=active_jobs,
+        recent_queries=list(monitor.get("queries") or []),
+        sources=sources,
+        provider_status=list(monitor.get("provider_status") or []),
+    )
 
 @router.get("/history", response_model=List[JobSearchHistoryResponse])
 def job_history(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):

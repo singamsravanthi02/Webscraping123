@@ -13,7 +13,7 @@ class QuestionGenerationAgent(BaseAgent):
     def generate_questions(self, user_id: int, context_text: str, document_metadata: dict) -> list:
         prompt = question_generation_prompt(context_text, document_metadata)
         try:
-            response = self.run_structured_inference(prompt, QuestionListSchema, user_id, use_pro=True)
+            response = self.run_structured_inference(prompt, QuestionListSchema, user_id, use_pro=False)
             return [item.model_dump() for item in response.questions]
         except Exception as e:
             logger.error(f"Failed to parse generated questions: {e}")
@@ -29,7 +29,7 @@ class ContentGenerationAgent(BaseAgent):
         prompt = content_generation_prompt(context_text)
 
         try:
-            response = self.run_structured_inference(prompt, LearningResourceSchema, user_id, use_pro=True)
+            response = self.run_structured_inference(prompt, LearningResourceSchema, user_id, use_pro=False)
             return response.model_dump()
         except Exception as e:
             logger.error(f"Failed to parse generated resources: {e}")

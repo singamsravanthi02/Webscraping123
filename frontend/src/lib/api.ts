@@ -1,7 +1,9 @@
 import axios from "axios";
 import { useAuthStore, type User } from "@/store/authStore";
 
-const apiRoot = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/api\/v1\/?$/, "");
+const apiRoot =
+  (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000")
+    .replace(/\/api\/v1\/?$/, "");
 
 type RefreshResponse = {
   access_token: string;
@@ -19,9 +21,6 @@ type UserProfile = {
 
 const api = axios.create({
   baseURL: `${apiRoot}/api/v1`,
-  headers: {
-    "Content-Type": "application/json",
-  },
 });
 
 api.interceptors.request.use(

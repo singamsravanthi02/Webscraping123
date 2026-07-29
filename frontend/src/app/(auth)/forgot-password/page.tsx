@@ -119,7 +119,7 @@ export default function ForgotPasswordPage() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="name@example.com"
+                    placeholder="student@spip.com"
                     className={`pl-9 bg-gray-50/50 border-gray-200 focus:bg-white focus:border-indigo-500 transition-colors ${
                       errors.email ? "border-red-500 focus:border-red-500" : ""
                     }`}

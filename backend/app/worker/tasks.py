@@ -395,7 +395,6 @@ def parse_resume_task(user_id: str, resume_url: str):
 def daily_recommendation_scheduler():
     """
     Runs every night via celery-beat to update readiness scores and generate adaptive plans.
-    Demonstrates multi-step workflow orchestration using Celery.
     """
     from app.domain.users.models import User
     from app.domain.ai_orchestration.placement_engine import placement_engine
@@ -436,105 +435,9 @@ def daily_recommendation_scheduler():
 @celery_app.task(name="app.worker.tasks.aggregate_and_process_jobs_task")
 def aggregate_and_process_jobs_task():
     """
-    Fetches jobs from all external aggregators, deduplicates, extracts skills via AI,
-    matches them against students, and queues notifications.
+    Refresh live job recommendations through the production Job Discovery engine.
     """
-    from app.worker.scrapers.factory import get_all_scrapers
-    from app.worker.ai_pipeline import AIPipeline
-    from app.domain.jobs.models import Job, JobSource
-    from app.domain.users.models import User
-    from app.domain.ai_orchestration.agents.jobs import JobMatchingAgent
-    from app.domain.notifications.models import NotificationLog, NotificationChannel
-    from dateutil import parser
-    
-    logger.info("Starting Job Aggregation Pipeline...")
-    db: Session = SessionLocal()
-    pipeline = AIPipeline()
-    matching_agent = JobMatchingAgent()
-    scrapers = get_all_scrapers()
-    
-    new_jobs = []
-    
-    try:
-        # 1. Fetch & Deduplicate
-        for scraper in scrapers:
-            try:
-                raw_jobs = scraper.scrape()
-            except Exception as e:
-                logger.error(f"Scraper {scraper.__class__.__name__} failed: {e}. Continuing with remaining providers.")
-                continue
-                
-            for rj in raw_jobs:
-                ext_id = rj.get("external_id")
-                if not ext_id:
-                    continue
-                
-                # Check DB for duplicate
-                existing = db.query(Job).filter(Job.external_id == ext_id).first()
-                if not existing:
-                    # Parse date safely
-                    p_date = None
-                    try:
-                        if rj.get("posted_date"):
-                            p_date = parser.parse(str(rj["posted_date"]))
-                    except Exception:
-                        logger.debug("Skipping invalid job posted_date for %s", ext_id)
-                        
-                    # Extract skills via LLM
-                    ai_data = pipeline.extract_job_details(rj["raw_description"])
-                    
-                    job = Job(
-                        title=rj["title"],
-                        company=rj["company"],
-                        location=rj["location"],
-                        salary_range=rj["salary_range"],
-                        apply_link=rj["apply_link"],
-                        raw_description=rj["raw_description"],
-                        employment_type=rj["employment_type"],
-                        posted_date=p_date,
-                        external_id=ext_id,
-                        source=JobSource.ARBEITNOW if "arbeitnow" in ext_id else JobSource.REMOTEOK,
-                        extracted_skills=ai_data["skills"],
-                        eligibility=ai_data["eligibility"],
-                        ai_summary=ai_data["ai_summary"]
-                    )
-                    db.add(job)
-                    db.flush() # get ID
-                    new_jobs.append(job)
-                    
-        db.commit()
-        logger.info(f"Aggregated {len(new_jobs)} new jobs.")
-        
-        # 2. Match against students and Notify
-        if new_jobs:
-            users = db.query(User).filter(User.is_active == True).all()
-            job_desc_list = [{"id": j.id, "title": j.title, "skills": j.extracted_skills} for j in new_jobs]
-            
-            for user in users:
-                profile = f"Email: {user.email}. User ID: {user.id} looking for tech roles."
-                try:
-                    scores = matching_agent.match_jobs(user.id, profile, job_desc_list)
-                    for s in scores:
-                        if s.get("match_score", 0) >= 80:
-                            # Queue notification
-                            log = NotificationLog(
-                                user_id=user.id,
-                                channel=NotificationChannel.IN_APP,
-                                template_name="job_match_alert",
-                                context_data={"job_id": s["job_id"], "score": s["match_score"]}
-                            )
-                            db.add(log)
-                            db.flush()
-                            dispatch_notification_task.delay(log.id)
-                except Exception as e:
-                    logger.error(f"Failed to match jobs for user {user.id}: {e}")
-            db.commit()
-            
-    except Exception as e:
-        logger.error(f"Aggregation task failed: {e}")
-        db.rollback()
-    finally:
-        db.close()
+    return refresh_ai_job_recommendations_task()
 
 
 @celery_app.task(name="app.worker.tasks.refresh_ai_job_recommendations_task")

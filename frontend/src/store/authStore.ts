@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { clearAuthStatusCookie } from "@/lib/auth";
 
+const apiBase = "/api/v1";
+
 export interface User {
   id: number;
   email: string;
@@ -11,6 +13,7 @@ export interface User {
   isActive: boolean;
   is_active?: boolean;
   profile_completed?: boolean;
+  profile_picture?: string;
 }
 
 interface AuthState {
@@ -30,10 +33,10 @@ export const useAuthStore = create<AuthState>()(
       setAuth: (user, token) => set({ user, accessToken: token, isAuthenticated: true }),
       logout: async () => {
         if (typeof window !== "undefined") {
-          const refreshToken = localStorage.getItem("refreshToken");
-          if (refreshToken) {
-            try {
-              await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/auth/logout`, {
+            const refreshToken = localStorage.getItem("refreshToken");
+            if (refreshToken) {
+              try {
+              await fetch(`${apiBase}/auth/logout`, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",

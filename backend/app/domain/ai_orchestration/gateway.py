@@ -120,14 +120,20 @@ class AIGateway:
 
     def _provider_order(self, feature: str) -> list[str]:
         feature_name = (feature or "").lower()
+        if "job_matching_embedding" in feature_name:
+            return ["gemini", "ollama"]
         if "embed" in feature_name:
-            return ["ollama", "gemini"]
+            return ["gemini", "ollama"]
         if any(token in feature_name for token in ("resume", "career", "interview_evaluation", "interview_eval")):
             route = ["gemini", "nvidia", "ollama"]
-        elif any(token in feature_name for token in ("learning_chat", "offline_chat")):
+        elif any(token in feature_name for token in ("roadmap", "module_content")):
+            route = ["gemini", "nvidia", "ollama"]
+        elif "learning_chat" in feature_name:
+            route = ["gemini", "nvidia", "ollama"]
+        elif "offline_chat" in feature_name:
             route = ["ollama", "gemini", "nvidia"]
         elif any(token in feature_name for token in ("quiz", "assessment", "question", "study", "summary", "learning")):
-            route = ["nvidia", "gemini", "ollama"]
+            route = ["gemini", "nvidia", "ollama"]
         elif any(token in feature_name for token in ("job", "recommend", "search", "match")):
             route = ["gemini", "nvidia", "ollama"]
         else:
@@ -477,11 +483,6 @@ class AIGateway:
         prompt_version: str = "v1",
         cache_ttl: int | None = None,
     ) -> list[float]:
-        gemini = self.providers["gemini"]
-        client = getattr(gemini, "client", None)
-        if not client:
-            raise HTTPException(status_code=503, detail="AI service is unavailable.")
-
         payload = (text or "").strip()
         if not payload:
             return [0.0] * 768
@@ -515,6 +516,10 @@ class AIGateway:
                         embedding = provider.embed_text(payload, model="nomic-embed-text")  # type: ignore[attr-defined]
                         model_name = "nomic-embed-text"
                     else:
+                        gemini = self.providers["gemini"]
+                        client = getattr(gemini, "client", None)
+                        if not client:
+                            raise ProviderUnavailableError("Gemini embedding client is unavailable")
                         response = client.models.embed_content(
                             model="gemini-embedding-001",
                             contents=[payload],
@@ -605,6 +610,8 @@ class AIGateway:
                     "learning_summary": self._provider_order("learning_summary"),
                     "learning_chat": self._provider_order("learning_chat"),
                     "offline_chat": self._provider_order("offline_chat"),
+                    "learning_roadmap": self._provider_order("learning_roadmap"),
+                    "learning_module_content": self._provider_order("learning_module_content"),
                     "embeddings": self._provider_order("embeddings"),
                     "job_ai": self._provider_order("job_ai"),
                 },

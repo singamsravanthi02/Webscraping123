@@ -4,11 +4,30 @@ import { useState, useEffect, useRef, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Send, ArrowLeft, Loader2, BrainCircuit, FileText, CheckCircle2, ChevronRight, BookMarked, ShieldCheck, AlertCircle } from "lucide-react";
 import api from "@/lib/api";
+import { FEATURE_FLAGS } from "@/lib/feature-flags";
+import EnterpriseLearningWorkspace from "../../enterprise-workspace";
 
 interface Citation {
   id: number;
   title: string;
   type: string;
+  document?: string;
+  source?: string;
+  page?: number | null;
+  chunk_number?: number | null;
+  chunk_index?: number | null;
+  similarity_score?: number;
+  embedding_distance?: number;
+  metadata?: {
+    document_id?: number;
+    subject?: string | null;
+    department?: string | null;
+    semester?: string | null;
+    unit?: string | null;
+    module?: string | null;
+    url?: string | null;
+    keywords?: string[];
+  };
 }
 
 interface Message {
@@ -51,7 +70,15 @@ interface StudyMaterialData {
   cheat_sheet?: string;
 }
 
-export default function LearningChat({ params }: { params: Promise<{ id: string }> }) {
+export default function LearningChat(props: { params: Promise<{ id: string }> }) {
+  if (!FEATURE_FLAGS.learningRoadmap) {
+    return <EnterpriseLearningWorkspace />;
+  }
+
+  return <LearningChatLegacy {...props} />;
+}
+
+function LearningChatLegacy({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
   
@@ -61,7 +88,7 @@ export default function LearningChat({ params }: { params: Promise<{ id: string 
   const [isTyping, setIsTyping] = useState(false);
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
   
-  const [studyMaterial, setStudyMaterial] = useState<{ type: string; content: QuizData | FlashcardData | StudyMaterialData | string } | null>(null);
+  const [studyMaterial, setStudyMaterial] = useState<{ type: string; content: QuizData | FlashcardData | StudyMaterialData | string; citations?: Citation[] } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchSession = useCallback(async () => {
@@ -106,11 +133,25 @@ export default function LearningChat({ params }: { params: Promise<{ id: string 
 
   const generateMaterial = async (type: string) => {
     setIsGenerating(type);
-    setStudyMaterial(null);
+    const placeholderContent =
+      type === "quiz"
+        ? { questions: [] }
+        : type === "flashcards"
+          ? { flashcards: [] }
+          : { summary_markdown: "" };
+    setStudyMaterial({ type, content: placeholderContent, citations: [] });
     try {
-      const res = await api.post<{ result: QuizData | FlashcardData | StudyMaterialData | string }>(`/learning/generate`, { type, topic: session?.title });
-      const content = res.data.result;
-      setStudyMaterial({ type, content });
+      const res = await api.post<{ result: QuizData | FlashcardData | StudyMaterialData | string; citations?: Citation[] }>(`/learning/generate`, { type, topic: session?.title });
+      const raw = res.data.result;
+      let content: QuizData | FlashcardData | StudyMaterialData | string = raw;
+      if (typeof raw === "string") {
+        try {
+          content = JSON.parse(raw);
+        } catch {
+          content = placeholderContent;
+        }
+      }
+      setStudyMaterial({ type, content, citations: res.data.citations || [] });
     } catch (error) {
       console.error(error);
     } finally {
@@ -195,7 +236,7 @@ export default function LearningChat({ params }: { params: Promise<{ id: string 
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="font-semibold text-gray-900">{session?.title || "Loading..."}</h1>
+            <h1 className="font-semibold text-gray-900">{session?.title || "Learning session"}</h1>
             <p className="text-xs text-purple-600 font-medium">{session?.subject || "General Study"}</p>
           </div>
         </div>
@@ -239,8 +280,8 @@ export default function LearningChat({ params }: { params: Promise<{ id: string 
             {messages.length === 0 && (
               <div className="h-full flex flex-col items-center justify-center text-center opacity-70">
                 <BrainCircuit className="w-16 h-16 text-purple-500 mb-4" />
-                <p className="text-xl font-medium text-gray-900">Hello! I&apos;m your AI Learning Assistant.</p>
-                <p className="text-sm mt-2 max-w-sm text-gray-500">Ask me any question about {session?.title}. I&apos;ll search through our trusted institutional knowledge base to give you accurate answers.</p>
+                <p className="text-xl font-medium text-gray-900">Hello! I&apos;m your study assistant.</p>
+                <p className="text-sm mt-2 max-w-sm text-gray-500">Use the summary, quiz, and flashcard tools first. Ask follow-up questions only when you need clarification on {session?.title}.</p>
               </div>
             )}
 
@@ -265,7 +306,7 @@ export default function LearningChat({ params }: { params: Promise<{ id: string 
                           <div className="w-6 h-6 rounded bg-purple-100 flex items-center justify-center">
                             <BrainCircuit className="w-3.5 h-3.5 text-purple-600" />
                           </div>
-                          <span className="font-semibold text-sm text-gray-900">Learning Assistant</span>
+                          <span className="font-semibold text-sm text-gray-900">Study Assistant</span>
                         </div>
                         
                         {aiData.confidence && aiData.confidence !== 'Unknown' && (
@@ -415,6 +456,25 @@ export default function LearningChat({ params }: { params: Promise<{ id: string 
                     ? renderFlashcards(studyMaterial.content as FlashcardData)
                     : null
               )}
+              {studyMaterial.citations?.length ? (
+                <div className="mt-6 space-y-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600">Sources</h3>
+                  <div className="space-y-2">
+                    {studyMaterial.citations.map((cite) => (
+                      <div key={`${cite.id}-${cite.title}`} className="rounded-xl border border-gray-200 bg-white p-3 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">[{cite.id}]</span>
+                          <span className="font-medium text-gray-900">{cite.document || cite.title}</span>
+                          <span className="text-gray-500">Score {(cite.similarity_score ?? 0).toFixed(3)}</span>
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          {cite.source || cite.type || "unknown"} | Page {cite.page ?? "-"} | Chunk {cite.chunk_number ?? (cite.chunk_index != null ? cite.chunk_index + 1 : "-")}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         )}

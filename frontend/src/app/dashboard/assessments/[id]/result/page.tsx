@@ -16,6 +16,7 @@ interface AssessmentResult {
 export default function AssessmentResultPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [result, setResult] = useState<AssessmentResult | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   const fetchResult = useCallback(() => {
     const data = sessionStorage.getItem(`assessment_result_${id}`);
@@ -23,6 +24,7 @@ export default function AssessmentResultPage({ params }: { params: Promise<{ id:
       const parsed = JSON.parse(data) as AssessmentResult;
       window.setTimeout(() => setResult(parsed), 0);
     }
+    setLoaded(true);
   }, [id]);
 
   useEffect(() => {
@@ -33,7 +35,11 @@ export default function AssessmentResultPage({ params }: { params: Promise<{ id:
   }, [fetchResult]);
 
   if (!result) {
-    return <div className="p-8 text-center text-gray-500">Loading results or no results found...</div>;
+    return (
+      <div className="p-8 text-center text-gray-500">
+        {loaded ? "No assessment result found." : "Loading results..."}
+      </div>
+    );
   }
   
   const scorePercent = result.total_marks > 0 ? (result.score / result.total_marks) * 100 : 0;
@@ -104,12 +110,12 @@ export default function AssessmentResultPage({ params }: { params: Promise<{ id:
               <div className="flex-1">
                 <h3 className="text-xl font-bold text-gray-900 mb-4">AI Performance Analysis</h3>
                 <ul className="space-y-4">
-                  {result.ai_recommendations?.map((rec: string, i: number) => (
+                  {result.ai_recommendations?.length ? result.ai_recommendations.map((rec: string, i: number) => (
                     <li key={i} className="flex items-start">
                       <CheckCircle className="w-5 h-5 text-indigo-500 mr-3 shrink-0 mt-0.5" />
                       <span className="text-gray-700">{rec}</span>
                     </li>
-                  )) || (
+                  )) : (
                     <li className="flex items-start">
                       <CheckCircle className="w-5 h-5 text-indigo-500 mr-3 shrink-0 mt-0.5" />
                       <span className="text-gray-700">Review your mistakes to improve.</span>

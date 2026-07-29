@@ -20,12 +20,11 @@ class BaseEmailService(ABC):
         raise NotImplementedError
 
 class ConsoleEmailService(BaseEmailService):
-    """A dummy email service that prints to console for development or fallback."""
+    """Console fallback for local development."""
     def send_welcome_email(self, email: str, full_name: str) -> None:
         logger.info(f"Sending welcome email to {full_name} <{email}>")
 
     def send_password_reset_email(self, email: str, reset_token: str) -> None:
-        logger.info(f"[DEBUG SPRINT] Password reset token for {email} is {reset_token}")
         logger.info(f"Sending password reset token {reset_token} to {email}")
 
     def send_otp_email(self, email: str, otp: str) -> None:
@@ -89,7 +88,6 @@ class BrevoEmailService(BaseEmailService):
         self._send(email, "Welcome to SPIP!", html)
 
     def send_password_reset_email(self, email: str, reset_token: str) -> None:
-        logger.info(f"[DEBUG SPRINT] Password reset token for {email} is {reset_token}")
         html = f"""
         <div style="font-family: sans-serif; padding: 20px;">
             <h2 style="color: #4F46E5;">Password Reset Request</h2>
@@ -101,7 +99,6 @@ class BrevoEmailService(BaseEmailService):
         self._send(email, "Password Reset Code", html)
 
     def send_otp_email(self, email: str, otp: str) -> None:
-        logger.info(f"[DEBUG SPRINT] OTP for {email} is {otp}")
         html = f"""
         <div style="font-family: sans-serif; padding: 20px;">
             <h2 style="color: #4F46E5;">Verify your Email</h2>

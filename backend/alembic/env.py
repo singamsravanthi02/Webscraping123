@@ -32,7 +32,7 @@ from app.domain.job_discovery.models import (
 )
 from app.domain.assessments.models import Assessment, QuestionBank, AssessmentQuestionMap, AssessmentAttempt, AttemptDetail
 from app.domain.interviews.models import InterviewSession, InterviewMessage, InterviewResult
-from app.domain.learning.models import LearningSession, LearningMessage, LearningResource
+from app.domain.learning.models import LearningSession, LearningMessage, LearningResource, LearningRoadmap, LearningModule, LearningProgress
 from app.domain.notifications.models import NotificationTemplate, NotificationLog
 from app.domain.knowledge.models import Document, DocumentChunk, GeneratedResource
 from app.core.config import settings

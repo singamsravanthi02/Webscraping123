@@ -36,6 +36,11 @@ export type AdminAnalytics = {
   system_status: string;
   active_users: number;
   jobs: number;
+  jobs_today?: number;
+  job_searches?: number;
+  job_recommendations?: number;
+  avg_job_match_score?: number;
+  job_source_mix?: { name: string; value: number }[];
   documents: number;
   pending_notifications: number;
   ai_requests: number;

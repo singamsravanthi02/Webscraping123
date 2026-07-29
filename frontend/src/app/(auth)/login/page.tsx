@@ -18,7 +18,12 @@ import { toast } from "sonner";
 import { setAuthStatusCookie } from "@/lib/auth";
 import { FEATURE_FLAGS } from "@/lib/feature-flags";
 import { useAuthStore } from "@/store/authStore";
+import api from "@/lib/api";
 import { getErrorMessage } from "@/lib/utils";
+
+const apiBase =
+  (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000")
+    .replace(/\/api\/v1\/?$/, "");
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -48,25 +53,12 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginFormValues) => {
     setIsLoading(true);
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/auth/login`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: data.email,
-            password: data.password,
-            remember_me: data.rememberMe,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Login failed");
-      }
-
-      const responseData = await response.json();
+      const response = await api.post("/auth/login", {
+        email: data.email,
+        password: data.password,
+        remember_me: data.rememberMe,
+      });
+      const responseData = response.data;
       localStorage.setItem("accessToken", responseData.access_token);
       localStorage.setItem("refreshToken", responseData.refresh_token);
       setAuthStatusCookie();
@@ -75,21 +67,12 @@ export default function LoginPage() {
 
       // Fetch user profile to check if onboarding is completed
       try {
-        const profileRes = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/users/me`,
-          {
-            headers: {
-              Authorization: `Bearer ${responseData.access_token}`,
-            },
-          }
-        );
-        if (profileRes.ok) {
-          const profileData = await profileRes.json();
-          useAuthStore.getState().setAuth(profileData, responseData.access_token);
-          if (profileData.profile_completed === false) {
-            router.push("/onboarding");
-            return;
-          }
+        const profileRes = await api.get("/users/me");
+        const profileData = profileRes.data;
+        useAuthStore.getState().setAuth(profileData, responseData.access_token);
+        if (profileData.profile_completed === false) {
+          router.push("/onboarding");
+          return;
         }
       } catch (err) {
         console.error("Failed to fetch profile during login", err);
@@ -139,7 +122,7 @@ export default function LoginPage() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="name@example.com"
+                    placeholder="student@spip.com"
                     className={`pl-9 bg-gray-50/50 border-gray-200 focus:bg-white focus:border-indigo-500 transition-colors ${
                       errors.email ? "border-red-500 focus:border-red-500" : ""
                     }`}
@@ -216,7 +199,7 @@ export default function LoginPage() {
                 onClick={async () => {
                   try {
                     setIsLoading(true);
-                    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/auth/google/login`);
+                    const res = await fetch(`${apiBase}/auth/google/login`);
                     if (!res.ok) {
                       throw new Error("Google login not configured");
                     }

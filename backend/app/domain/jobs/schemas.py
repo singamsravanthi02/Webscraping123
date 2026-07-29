@@ -22,15 +22,25 @@ class JobCreate(JobBase):
 
 class JobResponse(JobBase):
     id: int
+    provider: Optional[str] = None
+    country: Optional[str] = None
+    remote: Optional[bool] = None
+    currency: Optional[str] = None
+    company_url: Optional[str] = None
+    provider_url: Optional[str] = None
     extracted_skills: List[str]
     eligibility: Optional[str]
     deadline: Optional[date]
     ai_summary: Optional[str]
+    summary: Optional[str] = None
     status: JobStatus
     created_at: datetime
+    fingerprint: Optional[str] = None
+    freshness_score: Optional[int] = None
     
     # Virtual field for the AI match score
     match_score: Optional[int] = None
+    ai_match_score: Optional[int] = None
     missing_skills: Optional[List[str]] = None
     recommended_topics: Optional[List[str]] = None
 class BookmarkResponse(BaseModel):

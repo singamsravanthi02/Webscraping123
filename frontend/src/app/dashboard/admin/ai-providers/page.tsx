@@ -20,6 +20,7 @@ type ProviderRow = {
   success_rate: number;
   current_model: string | null;
   last_failure: string | null;
+  last_request_at: string | null;
   models: string[];
 };
 
@@ -247,6 +248,9 @@ export default function AiProvidersPage() {
               {provider.last_failure && (
                 <p className="mt-2 line-clamp-3 text-xs text-red-300">{provider.last_failure}</p>
               )}
+              <p className="mt-2 text-xs text-gray-500">
+                Last request: {provider.last_request_at || "none"}
+              </p>
               {provider.models.length > 0 && (
                 <p className="mt-2 text-xs text-gray-500">
                   {provider.models.join(", ")}

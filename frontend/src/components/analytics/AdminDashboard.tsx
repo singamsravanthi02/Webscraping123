@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
-import { Server, Users, Activity, Zap, Cpu } from "lucide-react";
+import { Server, Users, Activity, Zap, Cpu, Briefcase } from "lucide-react";
 import { AdminAnalytics, AnalyticsOverview, getAnalyticsOverview } from "@/lib/analytics";
 
 const EmptyState = ({ label }: { label: string }) => (
@@ -87,6 +87,25 @@ export const AdminDashboard = () => {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
+          <h3 className="text-gray-400 font-medium">Jobs Today</h3>
+          <div className="mt-2 text-3xl font-bold text-white">{admin?.jobs_today ?? 0}</div>
+        </div>
+        <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
+          <h3 className="text-gray-400 font-medium">Job Searches</h3>
+          <div className="mt-2 text-3xl font-bold text-white">{admin?.job_searches ?? 0}</div>
+        </div>
+        <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
+          <h3 className="text-gray-400 font-medium">Job Recommendations</h3>
+          <div className="mt-2 text-3xl font-bold text-white">{admin?.job_recommendations ?? 0}</div>
+        </div>
+        <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
+          <h3 className="text-gray-400 font-medium">Avg Match Score</h3>
+          <div className="mt-2 text-3xl font-bold text-white">{admin?.avg_job_match_score ?? 0}</div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
           <div className="mb-4">
@@ -154,6 +173,23 @@ export const AdminDashboard = () => {
         </div>
       </div>
 
+      {admin?.job_source_mix?.length ? (
+        <div className="rounded-2xl border border-[#2a2a35] bg-[#1a1a24] p-6">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-white">Job Source Mix</h3>
+            <p className="text-sm text-gray-400">Live distribution of discovered jobs by provider</p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {admin.job_source_mix.map((source) => (
+              <div key={source.name} className="rounded-xl bg-[#13131a] p-4">
+                <div className="text-sm text-gray-400">{source.name}</div>
+                <div className="mt-1 text-2xl font-bold text-white">{source.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-start gap-3">
           <div className="p-2 bg-cyan-500/10 text-cyan-400 rounded-lg">
@@ -167,6 +203,24 @@ export const AdminDashboard = () => {
         <Link
           href="/dashboard/admin/ai-providers"
           className="inline-flex items-center justify-center rounded-xl bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 transition-colors hover:bg-cyan-400"
+        >
+          Open monitor
+        </Link>
+      </div>
+
+      <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-lg">
+            <Briefcase className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-white">Job Discovery Monitor</h3>
+            <p className="text-sm text-gray-400">Inspect live sources, crawl latency, duplicates removed, and scheduler health.</p>
+          </div>
+        </div>
+        <Link
+          href="/dashboard/admin/jobs"
+          className="inline-flex items-center justify-center rounded-xl bg-indigo-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-400"
         >
           Open monitor
         </Link>

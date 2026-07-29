@@ -11,35 +11,40 @@ import time
 from typing import Any, Dict, Type, TypeVar
 
 import httpx
-from google import genai
-from google.genai import types
 from pydantic import BaseModel
 from urllib.parse import urlparse, urlunparse
 
 from app.core.config import settings
+
+try:
+    from google import genai
+    from google.genai import types
+except Exception:  # pragma: no cover - optional runtime dependency
+    genai = None
+    types = None
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
 class ProviderError(RuntimeError):
-    pass
+    """Base provider error."""
 
 
 class ProviderUnavailableError(ProviderError):
-    pass
+    """Provider is unavailable."""
 
 
 class ProviderRateLimitError(ProviderError):
-    pass
+    """Provider rate limit reached."""
 
 
 class ProviderQuotaError(ProviderError):
-    pass
+    """Provider quota exceeded."""
 
 
 class ProviderTimeoutError(ProviderError):
-    pass
+    """Provider request timed out."""
 
 
 @dataclass
@@ -54,6 +59,7 @@ class ProviderResult:
 class ProviderHealth:
     provider: str
     available: bool = False
+    status_reason: str | None = None
     latency_ms: float | None = None
     request_count: int = 0
     success_count: int = 0
@@ -61,6 +67,7 @@ class ProviderHealth:
     fallback_count: int = 0
     cache_hit_count: int = 0
     total_latency_ms: float = 0.0
+    last_request_at: datetime | None = None
     current_model: str | None = None
     last_failure: str | None = None
     models: list[str] = field(default_factory=list)
@@ -74,11 +81,13 @@ class ProviderHealth:
 
     @property
     def status(self) -> str:
+        if self.status_reason:
+            return self.status_reason
         if not self.available:
-            return "offline"
+            return "Unavailable"
         if self.failure_count and self.failure_count >= self.success_count:
-            return "degraded"
-        return "healthy"
+            return "Degraded"
+        return "Healthy"
 
     @property
     def average_latency_ms(self) -> float:
@@ -97,6 +106,7 @@ class ProviderHealth:
         return {
             "provider": self.provider,
             "status": self.status,
+            "status_reason": self.status_reason,
             "available": self.available,
             "latency_ms": self.latency_ms,
             "average_latency_ms": self.average_latency_ms,
@@ -109,6 +119,7 @@ class ProviderHealth:
             "success_rate": self.success_rate,
             "current_model": self.current_model,
             "last_failure": self.last_failure,
+            "last_request_at": self.last_request_at.isoformat() if self.last_request_at else None,
             "models": self.models,
             "last_checked_at": self.last_checked_at.isoformat() if self.last_checked_at else None,
         }
@@ -138,12 +149,14 @@ class ProviderHealthRegistry:
         with self._lock:
             state = self._state(provider)
             state.available = True
+            state.status_reason = None
             state.latency_ms = round(latency_ms, 1)
             state.total_latency_ms += latency_ms
             state.request_count += 1
             state.success_count += 1
             state.current_model = model or state.current_model
             state.last_failure = None
+            state.last_request_at = datetime.now(timezone.utc)
             state.last_checked_at = datetime.now(timezone.utc)
             self._active_provider = provider
 
@@ -155,7 +168,10 @@ class ProviderHealthRegistry:
             state.request_count += 1
             state.failure_count += 1
             state.current_model = model or state.current_model
-            state.last_failure = str(error)
+            reason = _classify_provider_error(str(error))
+            state.status_reason = reason if reason else state.status_reason
+            state.last_failure = reason or str(error)
+            state.last_request_at = datetime.now(timezone.utc)
             state.last_checked_at = datetime.now(timezone.utc)
 
     def mark_cache_hit(self, provider: str) -> None:
@@ -163,12 +179,15 @@ class ProviderHealthRegistry:
             state = self._state(provider)
             state.cache_hit_count += 1
             state.available = True
+            state.status_reason = None
+            state.last_request_at = datetime.now(timezone.utc)
             state.last_checked_at = datetime.now(timezone.utc)
 
     def mark_fallback(self, provider: str) -> None:
         with self._lock:
             state = self._state(provider)
             state.fallback_count += 1
+            state.last_request_at = datetime.now(timezone.utc)
             state.last_checked_at = datetime.now(timezone.utc)
 
     def refresh(self, providers: dict[str, "AIProvider"]) -> list[Dict[str, Any]]:
@@ -176,23 +195,28 @@ class ProviderHealthRegistry:
         for name, provider in providers.items():
             start = time.perf_counter()
             try:
+                reason = provider.health_reason()
                 available = provider.health_check()
                 models = provider.model_list() if available else []
                 latency_ms = (time.perf_counter() - start) * 1000
                 with self._lock:
                     state = self._state(name)
                     state.available = available
+                    state.status_reason = None if available else reason or state.status_reason
                     state.latency_ms = round(latency_ms, 1)
                     state.models = models
                     state.current_model = models[0] if models else state.current_model
+                    if reason and not available:
+                        state.last_failure = reason
                     state.last_checked_at = datetime.now(timezone.utc)
                     snapshot.append(state.to_dict())
             except Exception as exc:
                 with self._lock:
                     state = self._state(name)
                     state.available = False
+                    state.status_reason = _classify_provider_error(str(exc))
                     state.latency_ms = round((time.perf_counter() - start) * 1000, 1)
-                    state.last_failure = str(exc)
+                    state.last_failure = state.status_reason or str(exc)
                     state.last_checked_at = datetime.now(timezone.utc)
                     snapshot.append(state.to_dict())
         return snapshot
@@ -209,8 +233,20 @@ class ProviderHealthRegistry:
 provider_health = ProviderHealthRegistry()
 
 
+def _strip_unsupported_schema_keys(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _strip_unsupported_schema_keys(inner)
+            for key, inner in value.items()
+            if key != "additionalProperties"
+        }
+    if isinstance(value, list):
+        return [_strip_unsupported_schema_keys(item) for item in value]
+    return value
+
+
 def _json_schema(model: Type[T]) -> Dict[str, Any]:
-    return model.model_json_schema()
+    return _strip_unsupported_schema_keys(model.model_json_schema())
 
 
 def _clean_text(text: str) -> str:
@@ -268,25 +304,65 @@ class AIProvider(ABC):
     def model_list(self) -> list[str]:
         raise NotImplementedError
 
+    def health_reason(self) -> str | None:
+        return None
+
+
+def _classify_provider_error(message: str) -> str:
+    text = (message or "").lower()
+    if "sdk missing" in text:
+        return "SDK Missing"
+    if "api key is missing" in text or "configuration missing" in text:
+        return "Configuration Missing"
+    if "invalid key" in text or "invalid api key" in text or "unauthorized" in text or "forbidden" in text:
+        return "Invalid Key"
+    if "quota" in text:
+        return "Quota Exhausted"
+    if "rate limit" in text or "429" in text:
+        return "Rate Limited"
+    if "timeout" in text or "deadline" in text:
+        return "Timeout"
+    if "connection" in text or "network" in text or "unreachable" in text or "dns" in text:
+        return "Network Failure"
+    if "missing" in text and "key" in text:
+        return "Configuration Missing"
+    return "Unknown Exception"
+
 
 class GeminiProvider(AIProvider):
     name = "gemini"
 
     def __init__(self) -> None:
-        self.client: genai.Client | None = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
-        self._safety_settings = [
-            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH),
-            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH),
-            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH),
-            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH),
-        ]
+        self.client = None
+        self._startup_reason: str | None = None
+        self._safety_settings = []
+        if not genai or not types:
+            self._startup_reason = "SDK Missing"
+            logger.warning("Gemini startup status: %s", self._startup_reason)
+        elif not settings.GEMINI_API_KEY:
+            self._startup_reason = "Configuration Missing"
+            logger.warning("Gemini startup status: %s", self._startup_reason)
+        else:
+            try:
+                self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+                self._safety_settings = [
+                    types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH),
+                    types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH),
+                    types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH),
+                    types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH),
+                ]
+            except Exception as exc:
+                self._startup_reason = _classify_provider_error(str(exc))
+                logger.warning("Gemini startup status: %s", self._startup_reason)
 
-    def _ensure_client(self) -> genai.Client:
+    def _ensure_client(self):
         if not self.client:
-            raise ProviderUnavailableError("Gemini API key is missing")
+            raise ProviderUnavailableError(self._startup_reason or "Configuration Missing")
         return self.client
 
     def _config(self, *, response_schema: Any | None = None, max_output_tokens: int | None = None):
+        if not types:
+            raise ProviderUnavailableError("Gemini SDK is unavailable")
         config_kwargs: Dict[str, Any] = {
             "temperature": 0.2,
             "top_p": 0.95,
@@ -330,43 +406,70 @@ class GeminiProvider(AIProvider):
     def health_check(self) -> bool:
         return self.client is not None
 
+    def health_reason(self) -> str | None:
+        return self._startup_reason if not self.client else None
+
     def generate(self, prompt: str, model: str | None = None, *, stream: bool = False) -> ProviderResult:
         client = self._ensure_client()
         model_name = model or settings.GEMINI_MODEL_FLASH
-        if stream and hasattr(client.models, "generate_content_stream"):
-            chunks = client.models.generate_content_stream(
-                model=model_name,
-                contents=prompt,
-                config=self._config(),
-            )
-            parts: list[str] = []
-            for chunk in chunks:
-                part = self._extract_text(chunk)
-                if part:
-                    parts.append(part)
-            text = "".join(parts).strip()
-            if not text:
-                raise ProviderError("Empty Gemini streaming response")
-            return ProviderResult(text=text, model=model_name, usage={})
+        try:
+            if stream and hasattr(client.models, "generate_content_stream"):
+                chunks = client.models.generate_content_stream(
+                    model=model_name,
+                    contents=prompt,
+                    config=self._config(),
+                )
+                parts: list[str] = []
+                for chunk in chunks:
+                    part = self._extract_text(chunk)
+                    if part:
+                        parts.append(part)
+                text = "".join(parts).strip()
+                if not text:
+                    raise ProviderError("Unknown Exception")
+                return ProviderResult(text=text, model=model_name, usage={})
 
-        response = client.models.generate_content(model=model_name, contents=prompt, config=self._config())
-        text = self._extract_text(response)
-        if not text:
-            raise ProviderError("Empty Gemini response")
-        return ProviderResult(text=text, model=model_name, usage=self._usage(response))
+            response = client.models.generate_content(model=model_name, contents=prompt, config=self._config())
+            text = self._extract_text(response)
+            if not text:
+                raise ProviderError("Unknown Exception")
+            return ProviderResult(text=text, model=model_name, usage=self._usage(response))
+        except ProviderError:
+            raise
+        except Exception as exc:
+            reason = _classify_provider_error(str(exc))
+            if reason == "Quota Exhausted":
+                raise ProviderQuotaError(reason) from exc
+            if reason == "Rate Limited":
+                raise ProviderRateLimitError(reason) from exc
+            if reason == "Timeout":
+                raise ProviderTimeoutError(reason) from exc
+            raise ProviderUnavailableError(reason) from exc
 
     def generate_structured(self, prompt: str, schema_model: Type[T], model: str | None = None, *, stream: bool = False) -> ProviderResult:
         client = self._ensure_client()
         model_name = model or settings.GEMINI_MODEL_FLASH
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=self._config(response_schema=_json_schema(schema_model)),
-        )
-        text = self._extract_text(response)
-        if not text:
-            raise ProviderError("Empty Gemini structured response")
-        return ProviderResult(text=text, model=model_name, usage=self._usage(response))
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=self._config(response_schema=_json_schema(schema_model)),
+            )
+            text = self._extract_text(response)
+            if not text:
+                raise ProviderError("Unknown Exception")
+            return ProviderResult(text=text, model=model_name, usage=self._usage(response))
+        except ProviderError:
+            raise
+        except Exception as exc:
+            reason = _classify_provider_error(str(exc))
+            if reason == "Quota Exhausted":
+                raise ProviderQuotaError(reason) from exc
+            if reason == "Rate Limited":
+                raise ProviderRateLimitError(reason) from exc
+            if reason == "Timeout":
+                raise ProviderTimeoutError(reason) from exc
+            raise ProviderUnavailableError(reason) from exc
 
 
 class NvidiaProvider(AIProvider):

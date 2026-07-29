@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field
 from typing import Optional
 import warnings
 import os
@@ -8,6 +9,9 @@ base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 env_file_path = os.path.join(base_dir, f".env.{env_state}")
 if not os.path.exists(env_file_path):
     env_file_path = os.path.join(base_dir, ".env")
+env_files = (os.path.join(base_dir, ".env"),)
+if env_file_path != env_files[0]:
+    env_files = (*env_files, env_file_path)
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "SPIP API"
@@ -42,7 +46,10 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     
     # AI 
-    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    )
     GEMINI_MODEL_FLASH: str = "gemini-2.5-flash"
     GEMINI_MODEL_PRO: str = "gemini-2.5-pro"
     GEMINI_MODEL_FLASH_LITE: str = "gemini-flash-lite-latest"
@@ -59,6 +66,8 @@ class Settings(BaseSettings):
     SERPER_API_KEY: Optional[str] = None
     GOOGLE_CSE_API_KEY: Optional[str] = None
     GOOGLE_CSE_ID: Optional[str] = None
+    ADZUNA_APP_ID: Optional[str] = None
+    ADZUNA_APP_KEY: Optional[str] = None
     
     # Google OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None
@@ -76,6 +85,15 @@ class Settings(BaseSettings):
     # Job Providers
     ARBEITNOW_ENABLED: bool = True
     REMOTEOK_ENABLED: bool = True
+    JOB_REFRESH_INTERVAL_MINUTES: int = 360
+    JOB_CACHE_TTL_MINUTES: int = 120
+    JOB_MAX_RESULTS: int = 250
+    JOB_PROVIDER_TIMEOUT: int = 20
+    JOB_ENABLE_COMPANY_SCRAPERS: bool = True
+    JOB_ENABLE_AI_RANKING: bool = True
+    JOB_ENABLE_DEDUPLICATION: bool = True
+    JOB_ENABLE_BACKGROUND_REFRESH: bool = True
+    JOB_COMPANY_CAREER_URLS: str = ""
 
     # We map the legacy properties to the new ones to avoid breaking existing imports that use `settings.SECRET_KEY` etc.
     @property
@@ -95,7 +113,7 @@ class Settings(BaseSettings):
         return self.JWT_REFRESH_TOKEN_EXPIRE_DAYS
 
     model_config = SettingsConfigDict(
-        env_file=env_file_path,
+        env_file=env_files,
         env_file_encoding='utf-8',
         case_sensitive=True,
         extra='ignore'

@@ -18,41 +18,46 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "ai_token_usage_logs",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("user_id", sa.Integer(), nullable=False),
-        sa.Column("model_name", sa.String(), nullable=False),
-        sa.Column("prompt_tokens", sa.Integer(), nullable=True),
-        sa.Column("completion_tokens", sa.Integer(), nullable=True),
-        sa.Column("total_tokens", sa.Integer(), nullable=True),
-        sa.Column("feature", sa.String(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(op.f("ix_ai_token_usage_logs_id"), "ai_token_usage_logs", ["id"], unique=False)
-    op.create_index(op.f("ix_ai_token_usage_logs_user_id"), "ai_token_usage_logs", ["user_id"], unique=False)
-    op.create_index(op.f("ix_ai_token_usage_logs_feature"), "ai_token_usage_logs", ["feature"], unique=False)
-    op.create_index(op.f("ix_ai_token_usage_logs_created_at"), "ai_token_usage_logs", ["created_at"], unique=False)
+    bind = op.get_bind()
+    existing_tables = set(sa.inspect(bind).get_table_names())
 
-    op.create_table(
-        "ai_recommendation_logs",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("user_id", sa.Integer(), nullable=False),
-        sa.Column("agent_name", sa.String(), nullable=False),
-        sa.Column("action", sa.String(), nullable=False),
-        sa.Column("confidence_score", sa.Float(), nullable=False),
-        sa.Column("supporting_evidence", sa.JSON(), nullable=True),
-        sa.Column("source_documents", sa.JSON(), nullable=True),
-        sa.Column("reasoning_summary", sa.String(), nullable=False),
-        sa.Column("suggested_next_actions", sa.JSON(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(op.f("ix_ai_recommendation_logs_id"), "ai_recommendation_logs", ["id"], unique=False)
-    op.create_index(op.f("ix_ai_recommendation_logs_user_id"), "ai_recommendation_logs", ["user_id"], unique=False)
-    op.create_index(op.f("ix_ai_recommendation_logs_agent_name"), "ai_recommendation_logs", ["agent_name"], unique=False)
-    op.create_index(op.f("ix_ai_recommendation_logs_created_at"), "ai_recommendation_logs", ["created_at"], unique=False)
+    if "ai_token_usage_logs" not in existing_tables:
+        op.create_table(
+            "ai_token_usage_logs",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("user_id", sa.Integer(), nullable=False),
+            sa.Column("model_name", sa.String(), nullable=False),
+            sa.Column("prompt_tokens", sa.Integer(), nullable=True),
+            sa.Column("completion_tokens", sa.Integer(), nullable=True),
+            sa.Column("total_tokens", sa.Integer(), nullable=True),
+            sa.Column("feature", sa.String(), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+            sa.PrimaryKeyConstraint("id"),
+        )
+        op.create_index(op.f("ix_ai_token_usage_logs_id"), "ai_token_usage_logs", ["id"], unique=False)
+        op.create_index(op.f("ix_ai_token_usage_logs_user_id"), "ai_token_usage_logs", ["user_id"], unique=False)
+        op.create_index(op.f("ix_ai_token_usage_logs_feature"), "ai_token_usage_logs", ["feature"], unique=False)
+        op.create_index(op.f("ix_ai_token_usage_logs_created_at"), "ai_token_usage_logs", ["created_at"], unique=False)
+
+    if "ai_recommendation_logs" not in existing_tables:
+        op.create_table(
+            "ai_recommendation_logs",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("user_id", sa.Integer(), nullable=False),
+            sa.Column("agent_name", sa.String(), nullable=False),
+            sa.Column("action", sa.String(), nullable=False),
+            sa.Column("confidence_score", sa.Float(), nullable=False),
+            sa.Column("supporting_evidence", sa.JSON(), nullable=True),
+            sa.Column("source_documents", sa.JSON(), nullable=True),
+            sa.Column("reasoning_summary", sa.String(), nullable=False),
+            sa.Column("suggested_next_actions", sa.JSON(), nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+            sa.PrimaryKeyConstraint("id"),
+        )
+        op.create_index(op.f("ix_ai_recommendation_logs_id"), "ai_recommendation_logs", ["id"], unique=False)
+        op.create_index(op.f("ix_ai_recommendation_logs_user_id"), "ai_recommendation_logs", ["user_id"], unique=False)
+        op.create_index(op.f("ix_ai_recommendation_logs_agent_name"), "ai_recommendation_logs", ["agent_name"], unique=False)
+        op.create_index(op.f("ix_ai_recommendation_logs_created_at"), "ai_recommendation_logs", ["created_at"], unique=False)
 
 
 def downgrade() -> None:

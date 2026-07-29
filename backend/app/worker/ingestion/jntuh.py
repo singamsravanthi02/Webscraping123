@@ -13,8 +13,7 @@ class JNTUHKnowledgeAdapter(BaseKnowledgeAdapter):
         ]
         
     def fetch(self, url: str) -> str:
-        # Note: JNTUH often requires verify=False for local dev if SSL is flaky
-        with httpx.Client(timeout=15.0, verify=False) as client:
+        with httpx.Client(timeout=15.0, verify=True, follow_redirects=True) as client:
             res = client.get(url)
             res.raise_for_status()
             return res.text

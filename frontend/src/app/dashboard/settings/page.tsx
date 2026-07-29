@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Loader2, Save, UploadCloud } from "lucide-react";
+import { Loader2, Save, UploadCloud, Bell, Globe, Clock3, Cpu, Palette, Download, LogOut, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,8 @@ import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { getErrorMessage } from "@/lib/utils";
 import api from "@/lib/api";
+import { useTheme } from "next-themes";
+import { useAuthStore } from "@/store/authStore";
 
 const profileSchema = z.object({
   fullName: z.string().min(2, "Name is required"),
@@ -23,6 +26,13 @@ const profileSchema = z.object({
   college: z.string().min(2, "College is required"),
   skills: z.string().min(2, "Skills are required"),
   careerGoal: z.string().min(5, "Career goal is required"),
+  department: z.string().optional(),
+  branch: z.string().optional(),
+  semester: z.string().optional(),
+  cgpa: z.string().optional(),
+  linkedinUrl: z.string().url().optional().or(z.literal("")),
+  githubUrl: z.string().url().optional().or(z.literal("")),
+  portfolioUrl: z.string().url().optional().or(z.literal("")),
 });
 
 const passwordSchema = z.object({
@@ -37,13 +47,36 @@ const passwordSchema = z.object({
 type ProfileFormValues = z.infer<typeof profileSchema>;
 type PasswordFormValues = z.infer<typeof passwordSchema>;
 
+type PreferenceState = {
+  theme: "system" | "light" | "dark";
+  notifications: boolean;
+  email_preferences: boolean;
+  ai_provider_preference: "AUTO" | "GEMINI" | "NVIDIA" | "OLLAMA";
+  language: string;
+  timezone: string;
+};
+
+const defaultPreferences: PreferenceState = {
+  theme: "system",
+  notifications: true,
+  email_preferences: true,
+  ai_provider_preference: "AUTO",
+  language: "en",
+  timezone: "Asia/Kolkata",
+};
+
 export default function SettingsPage() {
+  const router = useRouter();
+  const { setTheme } = useTheme();
+  const logout = useAuthStore((state) => state.logout);
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isUploadingProfilePicture, setIsUploadingProfilePicture] = useState(false);
   const [profilePictureUrl, setProfilePictureUrl] = useState<string | null>(null);
+  const [preferences, setPreferences] = useState<PreferenceState>(defaultPreferences);
 
   const {
     register: registerProfile,
@@ -69,13 +102,23 @@ export default function SettingsPage() {
         if (res.ok) {
           const data = await res.json();
           setProfilePictureUrl(data.profile_picture || null);
+          const storedPreferences = data.profile_data?.settings_preferences || {};
           resetProfile({
             fullName: data.full_name || "",
             phone: data.phone || "",
             college: data.college || "",
             skills: data.skills ? data.skills.join(", ") : "",
             careerGoal: data.career_goal || "",
+            department: data.department || "",
+            branch: data.branch || "",
+            semester: data.semester ? String(data.semester) : "",
+            cgpa: data.cgpa ? String(data.cgpa) : "",
+            linkedinUrl: data.linkedin_url || "",
+            githubUrl: data.github_url || "",
+            portfolioUrl: data.portfolio_url || "",
           });
+          setPreferences({ ...defaultPreferences, ...storedPreferences });
+          setTheme((storedPreferences.theme as PreferenceState["theme"]) || "system");
         }
       } catch {
         toast.error("Failed to load profile");
@@ -84,7 +127,7 @@ export default function SettingsPage() {
       }
     }
     loadProfile();
-  }, [resetProfile]);
+  }, [resetProfile, setTheme]);
 
   const onProfileSave = async (data: ProfileFormValues) => {
     setIsSavingProfile(true);
@@ -101,8 +144,15 @@ export default function SettingsPage() {
           full_name: data.fullName,
           phone: data.phone,
           college: data.college,
+          department: data.department || null,
+          branch: data.branch || null,
+          semester: data.semester ? Number(data.semester) : null,
+          cgpa: data.cgpa ? Number(data.cgpa) : null,
           skills: skillsArray,
           career_goal: data.careerGoal,
+          linkedin_url: data.linkedinUrl || null,
+          github_url: data.githubUrl || null,
+          portfolio_url: data.portfolioUrl || null,
         }),
       });
 
@@ -112,6 +162,31 @@ export default function SettingsPage() {
       toast.error(getErrorMessage(err, "Failed to save profile"));
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  const handlePreferencesSave = async () => {
+    setIsSavingPreferences(true);
+    try {
+      const token = localStorage.getItem("accessToken");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/users/onboard/step`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          step_id: "settings_preferences",
+          data: preferences,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to save preferences");
+      setTheme(preferences.theme);
+      toast.success("Preferences saved successfully");
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Failed to save preferences"));
+    } finally {
+      setIsSavingPreferences(false);
     }
   };
 
@@ -180,6 +255,57 @@ export default function SettingsPage() {
     }
   };
 
+  const handleExportData = async () => {
+    try {
+      const token = localStorage.getItem("accessToken");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/users/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to export data");
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `spip-profile-${data.id}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Profile data exported");
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Failed to export data"));
+    }
+  };
+
+  const handleLogoutAll = async () => {
+    try {
+      await api.post("/auth/logout-all");
+      await logout();
+      router.push("/login");
+      toast.success("Logged out of all devices");
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Failed to log out of all sessions"));
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!confirm("Delete your account permanently? This cannot be undone.")) return;
+    try {
+      const token = localStorage.getItem("accessToken");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/users/me`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to delete account");
+      await logout();
+      router.push("/register");
+      toast.success("Account deleted");
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Failed to delete account"));
+    }
+  };
+
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold tracking-tight mb-8">Settings</h1>
@@ -188,6 +314,7 @@ export default function SettingsPage() {
         <TabsList className="mb-8">
           <TabsTrigger value="profile">Profile Details</TabsTrigger>
           <TabsTrigger value="resume">Resume & Documents</TabsTrigger>
+          <TabsTrigger value="preferences">Preferences</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
         </TabsList>
 
@@ -239,6 +366,26 @@ export default function SettingsPage() {
                       <Label>College / Institute</Label>
                       <Input {...registerProfile("college")} />
                     </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Department</Label>
+                        <Input {...registerProfile("department")} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Branch</Label>
+                        <Input {...registerProfile("branch")} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Semester</Label>
+                        <Input {...registerProfile("semester")} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>CGPA</Label>
+                        <Input {...registerProfile("cgpa")} />
+                      </div>
+                    </div>
                     <div className="space-y-2">
                       <Label>Skills (Comma separated)</Label>
                       <Input {...registerProfile("skills")} />
@@ -246,6 +393,20 @@ export default function SettingsPage() {
                     <div className="space-y-2">
                       <Label>Career Goal</Label>
                       <Textarea {...registerProfile("careerGoal")} />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label>LinkedIn URL</Label>
+                        <Input {...registerProfile("linkedinUrl")} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>GitHub URL</Label>
+                        <Input {...registerProfile("githubUrl")} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Portfolio URL</Label>
+                        <Input {...registerProfile("portfolioUrl")} />
+                      </div>
                     </div>
                   </>
                 )}
@@ -282,36 +443,151 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="security">
+        <TabsContent value="preferences">
           <Card>
-            <form onSubmit={handlePasswordSubmit(onPasswordSave)}>
-              <CardHeader>
-                <CardTitle>Change Password</CardTitle>
-                <CardDescription>Ensure your account is using a long, random password to stay secure.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <CardHeader>
+              <CardTitle>Preferences</CardTitle>
+              <CardDescription>These settings are stored on your profile and applied where the app supports them.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Current Password</Label>
-                  <Input type="password" {...registerPassword("currentPassword")} />
+                  <Label className="flex items-center gap-2"><Palette className="w-4 h-4" />Theme</Label>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={preferences.theme}
+                    onChange={(e) => {
+                      const theme = e.target.value as PreferenceState["theme"];
+                      setPreferences((current) => ({ ...current, theme }));
+                      setTheme(theme);
+                    }}
+                  >
+                    <option value="system">System</option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                  </select>
                 </div>
                 <div className="space-y-2">
-                  <Label>New Password</Label>
-                  <Input type="password" {...registerPassword("newPassword")} />
-                  {passwordErrors.newPassword && <p className="text-sm text-red-500">{passwordErrors.newPassword.message}</p>}
+                  <Label className="flex items-center gap-2"><Cpu className="w-4 h-4" />AI Provider Preference</Label>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={preferences.ai_provider_preference}
+                    onChange={(e) => setPreferences((current) => ({ ...current, ai_provider_preference: e.target.value as PreferenceState["ai_provider_preference"] }))}
+                  >
+                    <option value="AUTO">Auto</option>
+                    <option value="GEMINI">Gemini</option>
+                    <option value="NVIDIA">NVIDIA</option>
+                    <option value="OLLAMA">Ollama</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="flex items-center gap-3 rounded-lg border border-border p-3">
+                  <input
+                    type="checkbox"
+                    checked={preferences.notifications}
+                    onChange={(e) => setPreferences((current) => ({ ...current, notifications: e.target.checked }))}
+                  />
+                  <span className="text-sm">
+                    <span className="block font-medium flex items-center gap-2"><Bell className="w-4 h-4" />Enable notifications</span>
+                    <span className="text-muted-foreground">Allow in-app alerts and reminders.</span>
+                  </span>
+                </label>
+                <label className="flex items-center gap-3 rounded-lg border border-border p-3">
+                  <input
+                    type="checkbox"
+                    checked={preferences.email_preferences}
+                    onChange={(e) => setPreferences((current) => ({ ...current, email_preferences: e.target.checked }))}
+                  />
+                  <span className="text-sm">
+                    <span className="block font-medium">Email updates</span>
+                    <span className="text-muted-foreground">Receive placement and learning emails.</span>
+                  </span>
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2"><Globe className="w-4 h-4" />Language</Label>
+                  <Input
+                    value={preferences.language}
+                    onChange={(e) => setPreferences((current) => ({ ...current, language: e.target.value }))}
+                    placeholder="en"
+                  />
                 </div>
                 <div className="space-y-2">
-                  <Label>Confirm New Password</Label>
-                  <Input type="password" {...registerPassword("confirmPassword")} />
-                  {passwordErrors.confirmPassword && <p className="text-sm text-red-500">{passwordErrors.confirmPassword.message}</p>}
+                  <Label className="flex items-center gap-2"><Clock3 className="w-4 h-4" />Timezone</Label>
+                  <Input
+                    value={preferences.timezone}
+                    onChange={(e) => setPreferences((current) => ({ ...current, timezone: e.target.value }))}
+                    placeholder="Asia/Kolkata"
+                  />
                 </div>
-              </CardContent>
-              <CardFooter>
-                <Button type="submit" disabled={isSavingPassword}>
-                  {isSavingPassword ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : "Update Password"}
-                </Button>
-              </CardFooter>
-            </form>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button onClick={handlePreferencesSave} type="button" disabled={isSavingPreferences}>
+                {isSavingPreferences ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                Save Preferences
+              </Button>
+            </CardFooter>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="security">
+          <div className="space-y-6">
+            <Card>
+              <form onSubmit={handlePasswordSubmit(onPasswordSave)}>
+                <CardHeader>
+                  <CardTitle>Change Password</CardTitle>
+                  <CardDescription>Ensure your account is using a long, random password to stay secure.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Current Password</Label>
+                    <Input type="password" {...registerPassword("currentPassword")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>New Password</Label>
+                    <Input type="password" {...registerPassword("newPassword")} />
+                    {passwordErrors.newPassword && <p className="text-sm text-red-500">{passwordErrors.newPassword.message}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Confirm New Password</Label>
+                    <Input type="password" {...registerPassword("confirmPassword")} />
+                    {passwordErrors.confirmPassword && <p className="text-sm text-red-500">{passwordErrors.confirmPassword.message}</p>}
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button type="submit" disabled={isSavingPassword}>
+                    {isSavingPassword ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : "Update Password"}
+                  </Button>
+                </CardFooter>
+              </form>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Account Actions</CardTitle>
+                <CardDescription>Manage your account sessions and data.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                <Button type="button" variant="outline" onClick={handleExportData}>
+                  <Download className="w-4 h-4 mr-2" />
+                  Export Data
+                </Button>
+                <Button type="button" variant="outline" onClick={handleLogoutAll}>
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Logout All Sessions
+                </Button>
+                <Button type="button" variant="destructive" onClick={handleDeleteAccount}>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete Account
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

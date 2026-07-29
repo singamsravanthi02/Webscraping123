@@ -114,3 +114,23 @@ class JobActionResponse(BaseModel):
     job_id: int
     status: str
     details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class JobMonitorSourceStat(BaseModel):
+    name: str
+    count: int
+
+
+class JobMonitorResponse(BaseModel):
+    status: str
+    scheduler_status: str
+    last_crawl_at: Optional[datetime] = None
+    jobs_fetched: int = 0
+    duplicates_removed: int = 0
+    latency_ms: float = 0.0
+    failures: int = 0
+    cached: bool = False
+    active_jobs: int = 0
+    recent_queries: List[str] = Field(default_factory=list)
+    sources: List[JobMonitorSourceStat] = Field(default_factory=list)
+    provider_status: List[Dict[str, Any]] = Field(default_factory=list)

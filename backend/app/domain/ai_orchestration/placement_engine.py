@@ -27,8 +27,7 @@ class PlacementReadinessEngine:
             if not memory:
                 return 0.0
                 
-            # In a full production environment, these would be aggregated from actual tables
-            # Here we demonstrate the algorithmic blending from memory blobs
+            # Blend the persisted AI memory signals into one readiness score.
             
             # 1. Technical Assessments (Avg of test scores)
             tests = memory.test_performance.values() if memory.test_performance else []

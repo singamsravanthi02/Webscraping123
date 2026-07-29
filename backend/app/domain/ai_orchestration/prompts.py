@@ -9,7 +9,10 @@ PROMPT_VERSION_JOB_QUERY = "ai-job-query-v1"
 PROMPT_VERSION_INTERVIEW_TURN = "ai-interview-turn-v1"
 PROMPT_VERSION_INTERVIEW_EVAL = "ai-interview-eval-v1"
 PROMPT_VERSION_RAG = "ai-rag-v1"
+PROMPT_VERSION_LEARNING_HYBRID = "ai-learning-hybrid-v1"
 PROMPT_VERSION_STUDY_MATERIAL = "ai-study-material-v1"
+PROMPT_VERSION_LEARNING_ROADMAP = "ai-learning-roadmap-v1"
+PROMPT_VERSION_LEARNING_MODULE = "ai-learning-module-v1"
 PROMPT_VERSION_QUESTION_GENERATION = "ai-question-generation-v1"
 PROMPT_VERSION_ASSESSMENT_QUESTION_GENERATION = "ai-assessment-question-generation-v1"
 PROMPT_VERSION_CONTENT_GENERATION = "ai-content-generation-v1"
@@ -50,7 +53,8 @@ Description:
 """
 
 
-def job_query_prompt(profile: Dict[str, Any]) -> str:
+def job_query_prompt(profile: Dict[str, Any], seed_query: Optional[str] = None) -> str:
+    seed_block = f"\nSeed search query:\n{seed_query}\n" if seed_query else ""
     return f"""Student Profile:
 Skills:
 {chr(10).join(profile.get("skills", []))}
@@ -73,11 +77,12 @@ Interview Scores:
 Learning Progress:
 {json.dumps(profile.get("learning_progress", {}))}
 
-Generate the best Google Job Search queries for this student.
+{seed_block}Generate the best job search queries for this student.
 Return valid JSON only in this exact format:
 {_schema({"queries": ["query 1", "query 2"]})}
 
-Generate 10-20 search queries. Focus on internships, fresher roles, remote roles, and location-aware roles when relevant.
+Generate 10-20 search queries. Focus on internships, fresher roles, remote roles, location-aware roles, and synonyms/expansions for the seed query when provided.
+Do not return the seed query by itself.
 """
 
 
@@ -126,7 +131,7 @@ Reply as the interviewer with one concise, realistic next question or follow-up.
 
 
 def interview_evaluation_prompt(system_prompt: str, chat_history: List[Dict[str, str]]) -> str:
-    transcript = "Interview Transcript:\n\n"
+    transcript = "Interview Log:\n\n"
     for msg in chat_history:
         role_str = "Candidate" if msg["role"] == "user" else "Interviewer"
         transcript += f"{role_str}: {msg['content']}\n\n"
@@ -191,6 +196,74 @@ You MUST output your response EXACTLY in the following strict JSON format, witho
 """
 
 
+def hybrid_learning_prompt(
+    query: str,
+    context_str: str,
+    history_text: str = "",
+    subject: str | None = None,
+    use_rag: bool = False,
+    retrieval_confidence: float = 0.0,
+) -> str:
+    context_block = context_str.strip() or "None"
+    answer_mode = "hybrid" if use_rag else "general"
+    return f"""You are an institutional AI tutor for SPIP AI Placement OS.
+
+Answer the student's question using the hybrid rule below:
+- If institutional context is provided, ground the answer in it and cite the chunks with bracket notation like [1], [2].
+- If institutional context is weak or missing, answer directly using Gemini general knowledge.
+- Never invent institutional facts.
+- Never claim institutional sources were used when they were not.
+- Never return fake citations.
+
+Subject:
+{subject or "General"}
+
+Retrieval confidence:
+{retrieval_confidence}
+
+Answer mode:
+{answer_mode}
+
+Institutional context:
+{context_block}
+
+Conversation history:
+{history_text or "None"}
+
+User question:
+{query}
+
+Return only valid JSON with this exact shape:
+{_schema({
+    "concise_explanation": "Short answer in plain language.",
+    "confidence_level": "High/Medium/Low",
+    "answer_mode": answer_mode,
+    "used_rag": use_rag,
+    "used_gemini": True,
+    "hybrid": use_rag,
+    "retrieval_confidence": retrieval_confidence,
+    "institutional_information": "Institutional answer grounded in retrieved chunks, or 'No institutional sources were used. Answered using Gemini.'",
+    "general_explanation": "Broader explanation that helps the student understand the idea.",
+    "important_notes": ["Important note 1", "Important note 2"],
+    "recommended_reading": ["Reading 1", "Reading 2"],
+    "practice_questions": ["Practice question 1", "Practice question 2"],
+    "interview_tips": ["Interview tip 1", "Interview tip 2"],
+    "real_world_applications": ["Application 1", "Application 2"],
+    "related_topics": ["Topic 1", "Topic 2", "Topic 3"],
+    "follow_up_questions": ["Follow-up question 1", "Follow-up question 2"],
+    "suggested_quiz": "Follow-up quiz title",
+    "suggested_flashcards": "Flashcard topic",
+    "suggested_revision_notes": "Revision note topic",
+})}
+
+Rules:
+- If answer_mode is general, institutional_information must be exactly: "No institutional sources were used. Answered using Gemini."
+- If answer_mode is hybrid, include the relevant institutional facts and cite them inline.
+- Keep the answer useful and concise.
+- Do not include markdown fences.
+"""
+
+
 def study_material_prompt(material_type: str, topic: str, context_str: str) -> str:
     if material_type == "quiz":
         return f"""Generate a 5-question multiple choice quiz on the topic: '{topic}'.
@@ -246,6 +319,86 @@ Return strict JSON with this shape:
 })}
 """
     return "Invalid material type requested."
+
+
+def learning_roadmap_prompt(title: str, subject: str, context_str: str, existing_modules: List[str] | None = None) -> str:
+    existing_modules = existing_modules or []
+    return f"""Create a structured learning roadmap for the topic: '{title}'.
+Subject: {subject or title}
+
+Use the retrieved context below first. Supplement with general internet knowledge only when needed to organize a practical roadmap, but do not invent institutional facts.
+
+Retrieved context:
+{context_str or 'None'}
+
+Existing modules to avoid duplicating:
+{json.dumps(existing_modules, ensure_ascii=True)}
+
+Return only valid JSON in this shape:
+{_schema({
+    "title": title,
+    "subject": subject or title,
+    "difficulty": "Intermediate",
+    "estimated_hours": 18,
+    "description": "A concise roadmap description.",
+    "source_chips": ["Sreyas", "JNTUH", "Uploaded PDF", "Internet"],
+    "modules": [
+        {
+            "title": "Module title",
+            "summary": "One line summary",
+            "estimated_minutes": 90
+        }
+    ]
+})}
+
+Rules:
+- Generate 6 to 10 modules.
+- Keep module titles short and clickable.
+- Use only the supplied context for institutional specifics.
+- If the context is weak, still produce a practical roadmap but keep institutional claims minimal.
+"""
+
+
+def learning_module_prompt(title: str, roadmap_title: str, context_str: str) -> str:
+    return f"""Build the learning content for the module '{title}' under the roadmap '{roadmap_title}'.
+
+Use the retrieved context below first. Never ignore retrieved documents.
+
+Retrieved context:
+{context_str or 'None'}
+
+Return only valid JSON in this shape:
+{_schema({
+    "overview": "A brief overview.",
+    "theory": "Detailed theory in markdown.",
+    "institutional_notes": "Institution-specific notes.",
+    "important_questions": ["Question 1", "Question 2"],
+    "previous_year_questions": ["PYQ 1", "PYQ 2"],
+    "examples": ["Example 1", "Example 2"],
+    "diagrams": ["Diagram 1"],
+    "videos": ["Video title or URL"],
+    "practice_quiz": [
+        {
+            "question": "Question",
+            "options": ["A", "B", "C", "D"],
+            "answer_index": 0,
+            "explanation": "Explanation"
+        }
+    ],
+    "flashcards": [
+        {"front": "Term", "back": "Answer"}
+    ],
+    "revision_notes": "Short revision notes.",
+    "resources": [{"label": "Document", "url": ""}],
+    "source_chips": ["Sreyas", "JNTUH", "Uploaded PDF", "Internet"],
+    "retrieved_chunks": [{"title": "Doc", "score": 0.0}]
+})}
+
+Rules:
+- Keep the content compact and useful.
+- If retrieval is low confidence, say: "No institutional material was found for this topic."
+- Never fabricate institutional notes.
+"""
 
 
 def question_generation_prompt(context_text: str, document_metadata: Dict[str, Any]) -> str:

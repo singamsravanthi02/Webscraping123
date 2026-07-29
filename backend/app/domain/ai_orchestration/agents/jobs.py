@@ -28,7 +28,7 @@ class JobMatchingAgent(BaseAgent):
                 "job_id": 1, 
                 "match_score": 95, 
                 "missing_skills": ["Docker", "AWS"], 
-                "ai_summary": "Great match because...",
+                "ai_summary": "Strong match because the profile includes the core skills listed in the role.",
                 "confidence_score": 0.95
             }}
         ]

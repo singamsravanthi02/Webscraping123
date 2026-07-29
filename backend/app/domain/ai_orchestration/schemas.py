@@ -49,6 +49,28 @@ class RAGAnswerSchema(BaseModel):
     suggested_revision_notes: str = ""
 
 
+class LearningTutorAnswerSchema(BaseModel):
+    concise_explanation: str = ""
+    confidence_level: str = "Low"
+    answer_mode: str = "general"
+    used_rag: bool = False
+    used_gemini: bool = True
+    hybrid: bool = False
+    retrieval_confidence: float = 0.0
+    institutional_information: str = ""
+    general_explanation: str = ""
+    important_notes: List[str] = Field(default_factory=list)
+    recommended_reading: List[str] = Field(default_factory=list)
+    practice_questions: List[str] = Field(default_factory=list)
+    interview_tips: List[str] = Field(default_factory=list)
+    real_world_applications: List[str] = Field(default_factory=list)
+    related_topics: List[str] = Field(default_factory=list)
+    follow_up_questions: List[str] = Field(default_factory=list)
+    suggested_quiz: str = ""
+    suggested_flashcards: str = ""
+    suggested_revision_notes: str = ""
+
+
 class FlashcardSchema(BaseModel):
     front: str = ""
     back: str = ""
@@ -75,6 +97,39 @@ class LearningResourceSchema(BaseModel):
     flashcards: List[FlashcardSchema] = Field(default_factory=list)
     revision_notes: str = ""
     cheat_sheet: str = ""
+
+
+class LearningRoadmapModuleSchema(BaseModel):
+    title: str = ""
+    summary: str = ""
+    estimated_minutes: int = 0
+
+
+class LearningRoadmapSchema(BaseModel):
+    title: str = ""
+    subject: str = ""
+    difficulty: str = ""
+    estimated_hours: float = 0
+    description: str = ""
+    source_chips: List[str] = Field(default_factory=list)
+    modules: List[LearningRoadmapModuleSchema] = Field(default_factory=list)
+
+
+class LearningModuleContentSchema(BaseModel):
+    overview: str = ""
+    theory: str = ""
+    institutional_notes: str = ""
+    important_questions: List[str] = Field(default_factory=list)
+    previous_year_questions: List[str] = Field(default_factory=list)
+    examples: List[str] = Field(default_factory=list)
+    diagrams: List[str] = Field(default_factory=list)
+    videos: List[str] = Field(default_factory=list)
+    practice_quiz: List[StudyQuizQuestionSchema] = Field(default_factory=list)
+    flashcards: List[FlashcardSchema] = Field(default_factory=list)
+    revision_notes: str = ""
+    resources: List[dict] = Field(default_factory=list)
+    source_chips: List[str] = Field(default_factory=list)
+    retrieved_chunks: List[dict] = Field(default_factory=list)
 
 
 class QuestionItemSchema(BaseModel):

@@ -1,9 +1,40 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { BookOpen, Sparkles, Upload, FileText, Search, Library, Plus } from "lucide-react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { BookOpen, FileText, Loader2, Plus, Sparkles, Upload, PlayCircle, ChevronRight } from "lucide-react";
 import api from "@/lib/api";
+import { FEATURE_FLAGS } from "@/lib/feature-flags";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { toast } from "sonner";
+import EnterpriseLearningWorkspace from "./enterprise-workspace";
+
+type LearningModule = {
+  id: number;
+  title: string;
+  order: number;
+  estimated_minutes: number;
+  completed?: boolean;
+  progress_percent?: number;
+};
+
+type LearningRoadmap = {
+  id: number;
+  title: string;
+  subject?: string | null;
+  difficulty?: string | null;
+  estimated_hours: number;
+  description?: string | null;
+  source_chips?: string[];
+  modules: LearningModule[];
+  completed_modules: number;
+  total_modules: number;
+  completion_percent: number;
+  created_at: string;
+};
 
 type LearningSession = {
   id: number;
@@ -12,181 +43,413 @@ type LearningSession = {
   created_at: string;
 };
 
-export default function LearningDashboard() {
-  const router = useRouter();
-  const [sessions, setSessions] = useState<LearningSession[]>([]);
-  const [subject, setSubject] = useState("");
-  const [title, setTitle] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
+export default function LearningHubPage() {
+  if (!FEATURE_FLAGS.learningRoadmap) {
+    return <EnterpriseLearningWorkspace />;
+  }
 
-  const fetchSessions = useCallback(async () => {
+  return <LegacyLearningHubPage />;
+}
+
+function LegacyLearningHubPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialTopic = searchParams.get("q")?.trim() ?? "";
+  const [roadmaps, setRoadmaps] = useState<LearningRoadmap[]>([]);
+  const [sessions, setSessions] = useState<LearningSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [roadmapBusy, setRoadmapBusy] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [roadmapTitle, setRoadmapTitle] = useState(initialTopic);
+  const [roadmapSubject, setRoadmapSubject] = useState("");
+  const [roadmapDifficulty, setRoadmapDifficulty] = useState("Intermediate");
+  const [roadmapHours, setRoadmapHours] = useState("8");
+  const [sessionTitle, setSessionTitle] = useState("");
+  const [sessionSubject, setSessionSubject] = useState("");
+  const [resourceTitle, setResourceTitle] = useState("");
+  const [resourceSubject, setResourceSubject] = useState("");
+  const [resourceFile, setResourceFile] = useState<File | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await api.get("/learning/sessions");
-      setSessions(res.data);
+      const [roadmapsRes, sessionsRes] = await Promise.all([api.get("/learning/roadmaps"), api.get("/learning/sessions")]);
+      setRoadmaps(roadmapsRes.data || []);
+      setSessions(sessionsRes.data || []);
     } catch (error) {
       console.error(error);
+      toast.error("Failed to load learning hub");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void fetchSessions();
+      void fetchData();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [fetchSessions]);
+  }, [fetchData]);
 
-  const startSession = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title) return;
+  const createRoadmap = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = roadmapTitle.trim();
+    if (!title) {
+      return;
+    }
+
+    setRoadmapBusy(true);
     try {
-      const res = await api.post("/learning/sessions", { title, subject });
+      const res = await api.post("/learning/roadmap", {
+        title,
+        subject: roadmapSubject.trim() || null,
+        difficulty: roadmapDifficulty || null,
+        estimated_hours: Number(roadmapHours) || null,
+      });
+      toast.success("Learning roadmap ready");
+      setRoadmapTitle("");
+      setRoadmapSubject("");
+      setRoadmapDifficulty("Intermediate");
+      setRoadmapHours("8");
+      await fetchData();
+      const firstModuleId = res.data?.modules?.[0]?.id;
+      if (firstModuleId) {
+        router.push(`/dashboard/learning/module/${firstModuleId}`);
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to build roadmap");
+    } finally {
+      setRoadmapBusy(false);
+    }
+  };
+
+  const startSession = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = sessionTitle.trim();
+    if (!title) {
+      return;
+    }
+
+    setSessionBusy(true);
+    try {
+      const res = await api.post("/learning/sessions", {
+        title,
+        subject: sessionSubject.trim() || null,
+      });
+      toast.success("Study session created");
       router.push(`/dashboard/learning/chat/${res.data.id}`);
     } catch (error) {
       console.error(error);
+      toast.error("Failed to start session");
+    } finally {
+      setSessionBusy(false);
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const uploadResource = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!resourceFile) {
+      toast.error("Pick a file first");
+      return;
+    }
 
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("title", file.name);
-    formData.append("type", file.type.includes("pdf") ? "pdf" : "text");
-
+    const form = event.currentTarget;
+    setUploadBusy(true);
     try {
+      const formData = new FormData();
+      formData.append("title", resourceTitle.trim() || resourceFile.name);
+      formData.append("type", resourceFile.name.toLowerCase().endsWith(".pdf") ? "pdf" : "text");
+      if (resourceSubject.trim()) {
+        formData.append("subject", resourceSubject.trim());
+      }
+      formData.append("file", resourceFile);
       await api.post("/learning/resources/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" }
+        headers: { "Content-Type": "multipart/form-data" },
       });
-      alert("Document successfully ingested into the knowledge base!");
+      toast.success("Resource uploaded");
+      setResourceTitle("");
+      setResourceSubject("");
+      setResourceFile(null);
+      form.reset();
     } catch (error) {
       console.error(error);
-      alert("Failed to upload document.");
+      toast.error("Upload failed");
     } finally {
-      setIsUploading(false);
-      if (e.target) e.target.value = '';
+      setUploadBusy(false);
     }
   };
 
+  const totalModules = roadmaps.reduce((sum, roadmap) => sum + (roadmap.total_modules || roadmap.modules.length), 0);
+  const completedModules = roadmaps.reduce((sum, roadmap) => sum + (roadmap.completed_modules || 0), 0);
+  const activeRoadmaps = roadmaps.length;
+
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Header section */}
-      <div className="flex justify-between items-center bg-white p-8 rounded-3xl border border-gray-200 shadow-xl relative overflow-hidden">
-        <div className="absolute -top-24 -right-24 w-64 h-64 bg-blue-50 blur-3xl rounded-full" />
-        <div className="absolute -bottom-24 -left-24 w-64 h-64 bg-purple-50 blur-3xl rounded-full" />
-        
-        <div className="relative z-10">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2 flex items-center gap-3">
-            <Sparkles className="w-8 h-8 text-blue-600" />
-            AI Learning Hub
-          </h1>
-          <p className="text-gray-600 text-lg max-w-xl">
-            Your personalized AI tutor. Ask questions, generate flashcards, and master your subjects using trusted materials.
-          </p>
-        </div>
-        
-        <div className="relative z-10 flex flex-col gap-3">
-          <label className="flex items-center gap-2 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 px-6 py-3 rounded-xl transition-colors font-medium cursor-pointer shadow-sm">
-            {isUploading ? (
-              <span className="animate-pulse">Ingesting...</span>
-            ) : (
-              <>
-                <Upload className="w-5 h-5 text-gray-500" />
-                Upload Material
-              </>
-            )}
-            <input 
-              type="file" 
-              accept=".pdf,.txt" 
-              className="hidden" 
-              onChange={handleFileUpload} 
-              disabled={isUploading}
-            />
-          </label>
+    <div className="space-y-8 pb-8">
+      <div className="rounded-3xl border border-border/60 bg-gradient-to-br from-background via-background to-secondary/20 p-6 shadow-sm">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-sm uppercase tracking-wide text-muted-foreground">
+              <Sparkles className="h-4 w-4" />
+              Enterprise Learning Hub
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight">Roadmap first. Lessons second. Assistant always stays to the side.</h1>
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              Generate structured learning roadmaps, open module lessons, practice with quizzes and flashcards, and pull answers from the retrieved knowledge base instead of a generic chat box.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary">{activeRoadmaps} roadmaps</Badge>
+            <Badge variant="secondary">{totalModules} modules</Badge>
+            <Badge variant="secondary">{completedModules} completed</Badge>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Start New Session */}
-        <div className="lg:col-span-1 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6 flex items-center gap-2">
-            <Plus className="w-5 h-5 text-purple-600" />
-            New Study Session
-          </h2>
-          <form onSubmit={startSession} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Subject (Optional)</label>
-              <input 
-                type="text"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                placeholder="e.g. Data Structures, CN"
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-colors placeholder:text-gray-400"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Topic / Title</label>
-              <input 
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Trees and Graphs"
-                required
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-colors placeholder:text-gray-400"
-              />
-            </div>
-            <button 
-              type="submit"
-              className="w-full mt-4 flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-medium transition-colors shadow-md shadow-purple-500/20"
-            >
-              <BookOpen className="w-5 h-5" />
-              Start Learning
-            </button>
-          </form>
-        </div>
-
-        {/* Recent Sessions */}
-        <div className="lg:col-span-2">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6 flex items-center gap-2">
-            <Library className="w-5 h-5 text-blue-600" />
-            Recent Study Sessions
-          </h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {sessions.map((session) => (
-              <div 
-                key={session.id} 
-                onClick={() => router.push(`/dashboard/learning/chat/${session.id}`)}
-                className="bg-white border border-gray-200 rounded-2xl p-5 hover:border-blue-500/50 hover:shadow-md cursor-pointer transition-all group"
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-100 transition-colors">
-                    <FileText className="w-5 h-5" />
-                  </div>
-                  <span className="text-xs font-medium text-gray-400">
-                    {new Date(session.created_at).toLocaleDateString()}
-                  </span>
+      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="space-y-6">
+          <Card className="border-border/60 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Plus className="h-4 w-4" />
+                Create roadmap
+              </CardTitle>
+              <CardDescription>Generate a module-by-module plan with AI.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={createRoadmap} className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Title</label>
+                  <input
+                    value={roadmapTitle}
+                    onChange={(event) => setRoadmapTitle(event.target.value)}
+                    placeholder="Data Structures"
+                    className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                  />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">{session.title}</h3>
-                {session.subject && (
-                  <p className="text-sm text-gray-500">{session.subject}</p>
-                )}
-              </div>
-            ))}
-            
-            {sessions.length === 0 && (
-              <div className="col-span-full py-12 flex flex-col items-center justify-center text-center border-2 border-dashed border-gray-200 rounded-2xl bg-gray-50/50">
-                <Search className="w-10 h-10 text-gray-400 mb-3" />
-                <p className="text-gray-600 font-medium">No recent sessions found.</p>
-                <p className="text-sm text-gray-500 mt-1">Start a new study session to begin learning.</p>
-              </div>
-            )}
-          </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Subject</label>
+                    <input
+                      value={roadmapSubject}
+                      onChange={(event) => setRoadmapSubject(event.target.value)}
+                      placeholder="Computer Science"
+                      className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Difficulty</label>
+                    <input
+                      value={roadmapDifficulty}
+                      onChange={(event) => setRoadmapDifficulty(event.target.value)}
+                      placeholder="Intermediate"
+                      className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Estimated hours</label>
+                  <input
+                    value={roadmapHours}
+                    onChange={(event) => setRoadmapHours(event.target.value)}
+                    inputMode="numeric"
+                    placeholder="8"
+                    className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={roadmapBusy}>
+                  {roadmapBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BookOpen className="mr-2 h-4 w-4" />}
+                  Generate roadmap
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/60 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <PlayCircle className="h-4 w-4" />
+                Secondary study session
+              </CardTitle>
+              <CardDescription>Keep a focused assistant session for quick follow-up questions.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={startSession} className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Session title</label>
+                  <input
+                    value={sessionTitle}
+                    onChange={(event) => setSessionTitle(event.target.value)}
+                    placeholder="Trees and Graphs"
+                    className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Subject</label>
+                  <input
+                    value={sessionSubject}
+                    onChange={(event) => setSessionSubject(event.target.value)}
+                    placeholder="Algorithms"
+                    className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                  />
+                </div>
+                <Button type="submit" variant="outline" className="w-full" disabled={sessionBusy}>
+                  {sessionBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                  Start study session
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/60 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Upload className="h-4 w-4" />
+                Upload study material
+              </CardTitle>
+              <CardDescription>Send PDFs or text files into the learning knowledge base.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={uploadResource} className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Title</label>
+                  <input
+                    value={resourceTitle}
+                    onChange={(event) => setResourceTitle(event.target.value)}
+                    placeholder="Operating Systems Notes"
+                    className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Subject</label>
+                  <input
+                    value={resourceSubject}
+                    onChange={(event) => setResourceSubject(event.target.value)}
+                    placeholder="OS"
+                    className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">File</label>
+                  <input
+                    type="file"
+                    accept=".pdf,.txt,.docx,.pptx"
+                    onChange={(event) => setResourceFile(event.target.files?.[0] ?? null)}
+                    className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm"
+                  />
+                  {resourceFile ? <p className="text-xs text-muted-foreground">{resourceFile.name}</p> : null}
+                </div>
+                <Button type="submit" variant="secondary" className="w-full" disabled={uploadBusy}>
+                  {uploadBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                  Upload material
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
         </div>
 
+        <div className="space-y-6">
+          <Card className="border-border/60 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg">Roadmaps</CardTitle>
+              <CardDescription>Open a module to study, quiz, mark completion, and keep the assistant in the lesson view.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {loading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading roadmaps...
+                </div>
+              ) : roadmaps.length ? (
+                roadmaps.map((roadmap) => (
+                  <div key={roadmap.id} className="rounded-2xl border border-border/60 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-semibold">{roadmap.title}</h3>
+                          <Badge variant="secondary">{roadmap.completion_percent}% complete</Badge>
+                          <Badge variant="outline">{roadmap.difficulty || "Intermediate"}</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{roadmap.subject || roadmap.description || "AI generated learning plan"}</p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const firstModule = roadmap.modules[0];
+                          if (firstModule) {
+                            router.push(`/dashboard/learning/module/${firstModule.id}`);
+                          }
+                        }}
+                        disabled={!roadmap.modules.length}
+                      >
+                        Open
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="mt-4 grid gap-2">
+                      {roadmap.modules.map((module) => (
+                        <button
+                          key={module.id}
+                          type="button"
+                          onClick={() => router.push(`/dashboard/learning/module/${module.id}`)}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-border/60 px-3 py-3 text-left text-sm hover:border-primary/30 hover:bg-secondary/30"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-medium">
+                              {module.order}. {module.title}
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {module.estimated_minutes} min
+                              {module.progress_percent != null ? ` | ${module.progress_percent}% progress` : ""}
+                            </div>
+                          </div>
+                          <Badge variant={module.completed ? "default" : "secondary"}>{module.completed ? "Done" : "Open"}</Badge>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-border/60 p-8 text-sm text-muted-foreground">
+                  No roadmaps yet. Generate one from the form on the left.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/60 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg">Recent study sessions</CardTitle>
+              <CardDescription>Resume a focused assistant session when you want a quick follow-up answer.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-2">
+              {sessions.length ? (
+                sessions.map((session) => (
+                  <Link
+                    key={session.id}
+                    href={`/dashboard/learning/chat/${session.id}`}
+                    className="rounded-2xl border border-border/60 p-4 transition-colors hover:border-primary/30 hover:bg-secondary/30"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{session.title}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{session.subject || "General"}</div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    </div>
+                  </Link>
+                ))
+              ) : (
+                <div className="col-span-full rounded-2xl border border-dashed border-border/60 p-8 text-sm text-muted-foreground">
+                  No study sessions yet.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

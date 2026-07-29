@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, use, useCallback, type ComponentType } from "react";
-import { useRouter } from "next/navigation";
-import { Trophy, MessageSquare, Brain, Target, ArrowLeft, Download, CheckCircle2, AlertTriangle, Lightbulb, BookOpen, Star, Code2 } from "lucide-react";
+import { useState, useEffect, useCallback, type ComponentType } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { Trophy, MessageSquare, Brain, Target, ArrowLeft, CheckCircle2, AlertTriangle, Lightbulb, BookOpen, Star, Code2, Share2, Printer, Sparkles, Timer } from "lucide-react";
 import api from "@/lib/api";
+import { parseInterviewBrief } from "@/lib/interview";
 import {
   Radar,
   RadarChart,
@@ -27,9 +28,24 @@ interface InterviewResult {
   learning_plan: string;
 }
 
+interface InterviewLockViolation {
+  type: string;
+  details?: string | null;
+  recorded_at?: string | null;
+}
+
 interface TranscriptMessage {
   role: "system" | "user" | "ai";
   content: string;
+  created_at?: string;
+}
+
+interface InterviewDetail {
+  title: string;
+  type: string;
+  status: string;
+  job_description?: string | null;
+  start_time?: string;
 }
 
 type ScoreCardProps = {
@@ -70,30 +86,75 @@ function ScoreCard({ title, score, icon: Icon, color }: ScoreCardProps) {
   );
 }
 
-export default function InterviewResult({ params }: { params: Promise<{ id: string }> }) {
+function EmptyListItem() {
+  return <li className="text-gray-500">None identified.</li>;
+}
+
+function clampScore(value: number) {
+  return Math.max(0, Math.min(10, Math.round(value)));
+}
+
+export default function InterviewResult() {
   const router = useRouter();
-  const { id } = use(params);
+  const pathname = usePathname();
+  const id = pathname.split("/").filter(Boolean).at(-2) || "";
   const [result, setResult] = useState<InterviewResult | null>(null);
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
+  const [lockViolations, setLockViolations] = useState<InterviewLockViolation[]>([]);
+  const [interview, setInterview] = useState<InterviewDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const showGenerating = isGenerating || (!result && interview?.status === "completed");
 
   const fetchResult = useCallback(async () => {
     try {
-      const res = await api.get<{ result: InterviewResult; messages: TranscriptMessage[] }>(`/interviews/${id}`);
-      setResult(res.data.result);
+      const res = await api.get<{ result: InterviewResult; messages: TranscriptMessage[]; lock_violations?: InterviewLockViolation[] } & InterviewDetail>(`/interviews/${id}`);
+      setResult(res.data.result || null);
       setTranscript(res.data.messages);
+      setLockViolations(res.data.lock_violations || []);
+      setInterview({
+        title: res.data.title,
+        type: res.data.type,
+        status: res.data.status,
+        job_description: res.data.job_description,
+        start_time: res.data.start_time,
+      });
+      setIsGenerating(res.data.status === "completed" && !res.data.result);
+      return Boolean(res.data.result);
     } catch (error) {
       console.error(error);
+      return false;
     } finally {
       setLoading(false);
     }
   }, [id]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void fetchResult();
-    }, 0);
-    return () => window.clearTimeout(timer);
+    let interval: number | undefined;
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled) return;
+      const ready = await fetchResult();
+      if (cancelled) return;
+      if (ready) {
+        setIsGenerating(false);
+        if (interval) {
+          window.clearInterval(interval);
+          interval = undefined;
+        }
+      } else if (!interval) {
+        interval = window.setInterval(() => {
+          void poll();
+        }, 2000);
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (interval) {
+        window.clearInterval(interval);
+      }
+    };
   }, [fetchResult]);
 
   if (loading) {
@@ -104,12 +165,29 @@ export default function InterviewResult({ params }: { params: Promise<{ id: stri
     );
   }
 
+  if (showGenerating) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-6">
+        <div className="mb-4 rounded-full bg-purple-500/10 p-4">
+          <Trophy className="w-10 h-10 text-purple-400 animate-pulse" />
+        </div>
+        <h2 className="text-2xl font-bold text-white mb-2">Generating your AI Report...</h2>
+        <p className="text-gray-400 mb-4 max-w-md">
+          We have ended the interview and are scoring the transcript in the background. This page refreshes automatically every few seconds.
+        </p>
+        <div className="h-2 w-64 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full w-1/3 animate-pulse rounded-full bg-purple-500" />
+        </div>
+      </div>
+    );
+  }
+
   if (!result) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
         <AlertTriangle className="w-16 h-16 text-yellow-500 mb-4" />
         <h2 className="text-2xl font-bold text-white mb-2">Result Pending</h2>
-        <p className="text-gray-400 mb-6">The evaluation is still being processed or the interview wasn&apos;t completed properly.</p>
+        <p className="text-gray-400 mb-6">The interview is still being processed or was not completed properly.</p>
         <button onClick={() => router.push('/dashboard/interviews')} className="bg-purple-600 text-white px-6 py-2 rounded-full">Go Back</button>
       </div>
     );
@@ -122,26 +200,94 @@ export default function InterviewResult({ params }: { params: Promise<{ id: stri
     { subject: 'Confidence', A: result.confidence_score || 0, fullMark: 10 },
     { subject: 'Problem Solving', A: result.problem_solving_score || 0, fullMark: 10 },
   ];
+  const meta = parseInterviewBrief(interview?.job_description, interview?.type, interview?.title);
+  const isCoding = meta.mode === "coding";
+  const qaPairs = transcript
+    .filter((message) => message.role !== "system")
+    .reduce<Array<{ question: string; answer: string; index: number }>>((pairs, message, index, list) => {
+      if (message.role !== "ai") return pairs;
+      const answer = list.slice(index + 1).find((entry) => entry.role === "user");
+      pairs.push({
+        question: message.content,
+        answer: answer?.content || "",
+        index: pairs.length + 1,
+      });
+      return pairs;
+    }, []);
+  const codingRubric = [
+    { label: "Algorithm", score: clampScore(result.technical_score || 0) },
+    { label: "Complexity", score: clampScore(result.problem_solving_score || 0) },
+    { label: "Readability", score: clampScore(result.communication_score || 0) },
+    { label: "Naming", score: clampScore(result.confidence_score || 0) },
+    { label: "Optimization", score: clampScore(((result.technical_score || 0) + (result.problem_solving_score || 0)) / 2) },
+    { label: "Edge cases", score: clampScore(((result.overall_grade || 0) + (result.problem_solving_score || 0)) / 2) },
+    { label: "Alternative solution", score: clampScore(((result.overall_grade || 0) + 6) / 2) },
+  ];
+  const scoreSummary = Math.round((result.overall_grade || 0) * 10);
+  const downloadPdf = () => window.print();
+  const shareReport = async () => {
+    const text = [
+      `Interview report: ${meta.label}`,
+      `Company: ${meta.company}`,
+      `Overall grade: ${result.overall_grade || 0}/10`,
+      `Strengths: ${(result.strengths || []).slice(0, 3).join(", ") || "None"}`,
+      `Weaknesses: ${(result.weaknesses || []).slice(0, 3).join(", ") || "None"}`,
+    ].join("\n");
+
+    if (navigator.share) {
+      await navigator.share({ title: "Interview report", text });
+      return;
+    }
+
+    await navigator.clipboard.writeText(text);
+  };
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <button 
+
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-3">
+          <button
             onClick={() => router.push('/dashboard/interviews')}
-            className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors mb-4 text-sm font-medium"
+            className="flex items-center gap-2 text-sm font-medium text-gray-400 transition-colors hover:text-white"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to Dashboard
           </button>
+          <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.3em] text-gray-500">
+            <Sparkles className="h-4 w-4 text-purple-300" />
+            Interview report
+            <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[10px] tracking-[0.2em] text-gray-300">
+              {meta.label}
+            </span>
+          </div>
           <h1 className="text-3xl font-bold text-white">Interview Evaluation Report</h1>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-sm text-gray-300">{meta.company}</span>
+            <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-sm text-gray-300">{meta.difficulty}</span>
+            <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-sm text-gray-300">
+              <Timer className="mr-1 inline h-4 w-4 text-sky-400" />
+              {meta.durationMinutes} min
+            </span>
+          </div>
         </div>
-        <button className="flex items-center gap-2 bg-[#2a2a35] hover:bg-[#3a3a45] text-white px-6 py-3 rounded-xl transition-colors font-medium">
-          <Download className="w-5 h-5" />
-          Export PDF
-        </button>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={downloadPdf}
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#2a2a35] px-5 py-3 font-medium text-white transition-colors hover:bg-[#3a3a45]"
+          >
+            <Printer className="w-5 h-5" />
+            Download PDF
+          </button>
+          <button
+            onClick={() => void shareReport()}
+            className="flex items-center gap-2 rounded-xl border border-purple-500/20 bg-purple-500/10 px-5 py-3 font-medium text-purple-200 transition-colors hover:bg-purple-500/20"
+          >
+            <Share2 className="w-5 h-5" />
+            Share report
+          </button>
+        </div>
       </div>
 
       {/* Scores Grid */}
@@ -152,6 +298,28 @@ export default function InterviewResult({ params }: { params: Promise<{ id: stri
         <ScoreCard title="Confidence" score={result.confidence_score} icon={Target} color="rose" />
         <ScoreCard title="Problem Solving" score={result.problem_solving_score} icon={Code2} color="yellow" />
       </div>
+
+      {isCoding ? (
+        <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-8">
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+            <Code2 className="w-5 h-5 text-cyan-400" />
+            Coding Evaluation
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {codingRubric.map((item) => (
+              <div key={item.label} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-medium text-gray-300">{item.label}</div>
+                  <div className="text-sm font-semibold text-white">{item.score.toFixed(1)}/10</div>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#2a2a35]">
+                  <div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-purple-500" style={{ width: `${(item.score / 10) * 100}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
@@ -175,12 +343,14 @@ export default function InterviewResult({ params }: { params: Promise<{ id: stri
                 Strengths
               </h2>
               <ul className="space-y-3">
-                {result.strengths?.map((item: string, idx: number) => (
-                  <li key={idx} className="flex items-start gap-3">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-2" />
-                    <span className="text-gray-300">{item}</span>
-                  </li>
-                )) || <li className="text-gray-500">None identified.</li>}
+                {result.strengths?.length
+                  ? result.strengths.map((item: string, idx: number) => (
+                      <li key={idx} className="flex items-start gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-2" />
+                        <span className="text-gray-300">{item}</span>
+                      </li>
+                    ))
+                  : <EmptyListItem />}
               </ul>
             </div>
             
@@ -190,12 +360,14 @@ export default function InterviewResult({ params }: { params: Promise<{ id: stri
                 Weaknesses
               </h2>
               <ul className="space-y-3">
-                {result.weaknesses?.map((item: string, idx: number) => (
-                  <li key={idx} className="flex items-start gap-3">
-                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-2" />
-                    <span className="text-gray-300">{item}</span>
-                  </li>
-                )) || <li className="text-gray-500">None identified.</li>}
+                {result.weaknesses?.length
+                  ? result.weaknesses.map((item: string, idx: number) => (
+                      <li key={idx} className="flex items-start gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-2" />
+                        <span className="text-gray-300">{item}</span>
+                      </li>
+                    ))
+                  : <EmptyListItem />}
               </ul>
             </div>
           </div>
@@ -211,11 +383,11 @@ export default function InterviewResult({ params }: { params: Promise<{ id: stri
             
             <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-4">Recommended Topics to Study</h3>
             <div className="flex flex-wrap gap-2">
-              {result.recommended_topics?.map((topic, idx) => (
+              {result.recommended_topics?.length ? result.recommended_topics.map((topic, idx) => (
                 <span key={idx} className="px-3 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 text-sm">
                   {topic}
                 </span>
-              ))}
+              )) : <span className="text-sm text-gray-500">No study topics were suggested.</span>}
             </div>
           </div>
           
@@ -225,15 +397,63 @@ export default function InterviewResult({ params }: { params: Promise<{ id: stri
               Actionable Suggestions
             </h2>
             <ul className="space-y-4">
-              {result.suggestions?.map((suggestion: string, idx: number) => (
+              {result.suggestions?.length ? result.suggestions.map((suggestion: string, idx: number) => (
                 <li key={idx} className="flex gap-4 p-4 rounded-xl bg-[#2a2a35]/50 border border-[#2a2a35]">
                   <span className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-500/10 text-purple-400 flex items-center justify-center font-semibold">
                     {idx + 1}
                   </span>
                   <p className="text-gray-300 pt-1">{suggestion}</p>
                 </li>
-              ))}
+              )) : <li className="text-gray-500">No suggestions were generated.</li>}
             </ul>
+          </div>
+
+          <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-8">
+            <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-400" />
+              Proctoring Events
+            </h2>
+            {lockViolations.length ? (
+              <ul className="space-y-3">
+                {lockViolations.map((violation, idx) => (
+                  <li key={`${violation.recorded_at || idx}`} className="p-4 rounded-xl bg-[#2a2a35]/50 border border-[#2a2a35]">
+                    <p className="text-sm font-medium text-white">{violation.type.replaceAll("_", " ")}</p>
+                    {violation.details && <p className="text-sm text-gray-300 mt-1">{violation.details}</p>}
+                    {violation.recorded_at && <p className="text-xs text-gray-500 mt-2">{new Date(violation.recorded_at).toLocaleString()}</p>}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-gray-400 text-sm">No proctoring events were recorded.</p>
+            )}
+          </div>
+
+          <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-8">
+            <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-300" />
+              Question Breakdown
+            </h2>
+            <div className="space-y-4">
+              {qaPairs.length ? (
+                qaPairs.map((pair) => (
+                  <div key={`${pair.index}-${pair.question.slice(0, 12)}`} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="text-xs uppercase tracking-[0.2em] text-gray-500">Question {pair.index}</div>
+                      <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-gray-300">
+                        {pair.answer ? "Answered" : "Pending"}
+                      </span>
+                    </div>
+                    <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white">{pair.question}</div>
+                    <div className="mt-4 text-xs uppercase tracking-[0.2em] text-gray-500">Answer</div>
+                    <div className="mt-2 whitespace-pre-wrap text-sm leading-7 text-gray-300">
+                      {pair.answer || "No answer captured."}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-gray-400 text-sm">No question breakdown is available yet.</p>
+              )}
+            </div>
           </div>
 
         </div>
@@ -263,10 +483,35 @@ export default function InterviewResult({ params }: { params: Promise<{ id: stri
             </div>
           </div>
 
-          {/* Transcript Section */}
+          <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Target className="w-5 h-5 text-purple-300" />
+              Session Snapshot
+            </h2>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="text-xs uppercase tracking-[0.2em] text-gray-500">Overall</div>
+                <div className="mt-2 text-2xl font-bold text-white">{scoreSummary}%</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="text-xs uppercase tracking-[0.2em] text-gray-500">Questions</div>
+                <div className="mt-2 text-2xl font-bold text-white">{qaPairs.length}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="text-xs uppercase tracking-[0.2em] text-gray-500">Violations</div>
+                <div className="mt-2 text-2xl font-bold text-white">{lockViolations.length}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="text-xs uppercase tracking-[0.2em] text-gray-500">Mode</div>
+                <div className="mt-2 text-sm font-semibold text-white">{meta.label}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Interview Log Section */}
           <div className="bg-[#1a1a24] border border-[#2a2a35] rounded-2xl p-0 flex flex-col h-[600px]">
             <div className="p-6 border-b border-[#2a2a35]">
-              <h2 className="text-xl font-semibold text-white">Interview Transcript</h2>
+              <h2 className="text-xl font-semibold text-white">Interview Log</h2>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {transcript.filter(m => m.role !== 'system').map((msg, idx) => (
@@ -277,7 +522,7 @@ export default function InterviewResult({ params }: { params: Promise<{ id: stri
                       : 'bg-purple-500/10 border border-purple-500/20 text-gray-200 rounded-bl-none'
                   }`}>
                     <span className="block text-xs text-gray-500 mb-1 font-medium">
-                      {msg.role === 'user' ? 'You' : 'AI Interviewer'}
+                      {msg.role === 'user' ? 'You' : 'Interviewer'}
                     </span>
                     <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   </div>

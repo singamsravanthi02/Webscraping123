@@ -1,53 +1,62 @@
-import pytest
-import uuid
-from unittest.mock import patch, MagicMock
-from app.worker.tasks import aggregate_and_process_jobs_task
-from app.domain.jobs.models import Job, JobSource
-from app.domain.users.models import User
+from app.domain.jobs.deduplication import job_fingerprint
+from app.domain.jobs.providers import JobListing, JobProviderHub, normalize_job_item
+def test_job_fingerprint_ignores_description_noise():
+    left = {
+        "title": "Software Engineer",
+        "company": "NVIDIA",
+        "location": "India, Hyderabad",
+        "apply_url": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/abc",
+        "description": "short",
+    }
+    right = {**left, "description": "much richer job description from another source"}
 
-@patch('app.worker.scrapers.arbeitnow.httpx.Client.get')
-@patch('app.worker.ai_pipeline.AIGateway.chat_session')
-@patch('app.domain.ai_orchestration.agents.jobs.JobMatchingAgent.match_jobs')
-def test_job_aggregation_pipeline(mock_match, mock_chat_session, mock_http_get, db_session):
-    initial_count = db_session.query(Job).count()
+    assert job_fingerprint(left) == job_fingerprint(right)
 
-    # Mock Arbeitnow API Response
-    mock_response = MagicMock()
-    unique_slug = f"software-engineer-{uuid.uuid4().hex[:8]}"
-    mock_response.json.return_value = {
-        "data": [
+
+def test_provider_hub_keeps_richer_duplicate():
+    hub = JobProviderHub()
+    lean = JobListing(
+        title="Software Engineer",
+        company="NVIDIA",
+        location="India, Hyderabad",
+        apply_url="https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/abc",
+        provider="remoteok",
+        description="Python",
+        fingerprint=job_fingerprint(
             {
                 "title": "Software Engineer",
-                "company_name": f"Tech Inc {unique_slug}",
-                "location": "Remote",
-                "url": "https://example.com/apply",
-                "description": "Python and React",
-                "created_at": "2026-07-09T00:00:00Z",
-                "slug": unique_slug
+                "company": "NVIDIA",
+                "location": "India, Hyderabad",
+                "apply_url": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/abc",
             }
-        ]
-    }
-    mock_http_get.return_value = mock_response
+        ),
+    )
+    rich = JobListing(
+        title=lean.title,
+        company=lean.company,
+        location=lean.location,
+        apply_url=lean.apply_url,
+        provider="workday_careers",
+        description="Python, CUDA, Linux, distributed systems, and GPU infrastructure",
+        fingerprint=lean.fingerprint,
+    )
 
-    # Mock Gemini extraction
-    mock_chat_mock = MagicMock()
-    mock_chat_mock.send_message.return_value.text = '''{"skills": ["Python", "React"], "eligibility": "Bachelors", "ai_summary": "Great role"}'''
-    mock_chat_session.return_value = mock_chat_mock
-    
-    # Mock Match Agent
-    mock_match.return_value = [{"job_id": 1, "match_score": 85, "missing_skills": ["SQL"], "ai_summary": "Good match"}]
-    
-    # Run task
-    # To test deduplication, we run it twice
-    aggregate_and_process_jobs_task()
-    
-    # Verify Job was inserted
-    jobs = db_session.query(Job).all()
-    assert len(jobs) == initial_count + 1
-    inserted_job = next(job for job in jobs if job.company == f"Tech Inc {unique_slug}")
-    assert "Python" in inserted_job.extracted_skills
-    
-    # Run again to test deduplication
-    aggregate_and_process_jobs_task()
-    jobs_after = db_session.query(Job).all()
-    assert len(jobs_after) == len(jobs)
+    deduped = hub._dedupe([lean, rich])
+
+    assert len(deduped) == 1
+    assert deduped[0].provider == "workday_careers"
+
+
+def test_normalize_rejects_non_job_placeholder_urls():
+    listing = normalize_job_item(
+        {
+            "title": "Software Engineer",
+            "company_name": "NVIDIA",
+            "location": "India",
+            "apply_link": "not-a-url",
+            "raw_description": "Python role",
+        },
+        provider="workday_careers",
+    )
+
+    assert listing.apply_url == ""

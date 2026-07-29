@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ComponentType } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StaggerContainer, StaggerItem } from "@/components/animations/StaggerContainer";
@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import api from "@/lib/api";
+import { asArray, hasValidExternalUrl } from "@/lib/utils";
 
 type Job = {
   id: number;
@@ -24,12 +25,20 @@ type Job = {
   apply_link?: string | null;
 };
 
+type Stat = {
+  title: string;
+  value: string | null;
+  change: string;
+  icon: ComponentType<{ className?: string }>;
+  trend: "up" | "down";
+};
+
 export default function DashboardOverview() {
-  const [stats, setStats] = useState([
-    { title: "Overall Readiness", value: "...", change: "Loading", icon: Target, trend: "up" },
-    { title: "Mock Interviews", value: "...", change: "Loading", icon: Users, trend: "up" },
-    { title: "Skill Score", value: "...", change: "Loading", icon: Activity, trend: "up" },
-    { title: "Job Matches", value: "...", change: "Loading", icon: TrendingUp, trend: "up" },
+  const [stats, setStats] = useState<Stat[]>([
+    { title: "Overall Readiness", value: null, change: "", icon: Target, trend: "up" },
+    { title: "Mock Interviews", value: null, change: "", icon: Users, trend: "up" },
+    { title: "Skill Score", value: null, change: "", icon: Activity, trend: "up" },
+    { title: "Job Matches", value: null, change: "", icon: TrendingUp, trend: "up" },
   ]);
   const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -37,23 +46,45 @@ export default function DashboardOverview() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [userRes, jobsRes, interviewsRes] = await Promise.all([
+        const [userRes, jobsRes, interviewsRes, trendingRes] = await Promise.allSettled([
           api.get("/users/me"),
           api.get("/jobs"),
-          api.get("/interviews")
+          api.get("/interviews"),
+          api.get("/jobs/trending")
         ]);
 
-        const profile = userRes.data?.profile_data || {};
+        const profile = userRes.status === "fulfilled" ? userRes.value.data?.profile_data || {} : {};
+        const jobs = jobsRes.status === "fulfilled" ? asArray<Job>(jobsRes.value.data) : [];
+        const realJobs = jobs.filter((job) => hasValidExternalUrl(job.apply_link));
+        const trendingJobs = trendingRes.status === "fulfilled"
+          ? asArray<{ job?: Job; avg_score: number }>(trendingRes.value.data).reduce<Job[]>((acc, entry) => {
+              if (!entry.job || !hasValidExternalUrl(entry.job.apply_link)) {
+                return acc;
+              }
+
+              acc.push({
+                id: entry.job.id ?? 0,
+                company: entry.job.company,
+                title: entry.job.title,
+                match_score: entry.job.match_score ?? entry.avg_score,
+                apply_link: entry.job.apply_link,
+              });
+              return acc;
+            }, [])
+          : [];
+        const interviews = interviewsRes.status === "fulfilled" ? asArray(interviewsRes.value.data) : [];
+        const visibleJobs = realJobs.length > 0 ? realJobs : trendingJobs;
+        const uniqueJobs = Array.from(new Map(visibleJobs.map((job) => [job.id, job])).values());
         
         setStats([
-          { title: "Overall Readiness", value: `${profile.readiness_score || 0}%`, change: "+2%", icon: Target, trend: "up" },
-          { title: "Mock Interviews", value: `${interviewsRes.data.length || 0}`, change: "Total taken", icon: Users, trend: "up" },
-          { title: "Skill Score", value: `${profile.skill_score || 0}`, change: "Based on quizzes", icon: Activity, trend: "up" },
-          { title: "Job Matches", value: `${jobsRes.data.length || 0}`, change: "Available", icon: TrendingUp, trend: "up" },
+          { title: "Overall Readiness", value: profile.readiness_score != null ? `${profile.readiness_score}%` : "—", change: "+2%", icon: Target, trend: "up" },
+          { title: "Mock Interviews", value: `${interviews.length}`, change: "Total taken", icon: Users, trend: "up" },
+          { title: "Skill Score", value: profile.skill_score != null ? `${profile.skill_score}` : "—", change: "Based on quizzes", icon: Activity, trend: "up" },
+          { title: "Job Matches", value: `${uniqueJobs.length}`, change: "Available", icon: TrendingUp, trend: "up" },
         ]);
 
         // Take top 3 jobs
-        setRecommendedJobs(jobsRes.data.slice(0, 3).map((job: Job) => job));
+        setRecommendedJobs(uniqueJobs.slice(0, 3));
         
       } catch (error) {
         console.error("Failed to fetch dashboard data:", error);
@@ -87,10 +118,10 @@ export default function DashboardOverview() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{stat.value}</div>
-                <p className="text-xs text-emerald-500 font-medium mt-1">
-                  {stat.change}
-                </p>
+                <div className="text-2xl font-bold">{stat.value ?? "—"}</div>
+                {stat.change ? (
+                  <p className="text-xs text-emerald-500 font-medium mt-1">{stat.change}</p>
+                ) : null}
               </CardContent>
             </Card>
           </StaggerItem>
@@ -107,9 +138,20 @@ export default function DashboardOverview() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex items-center justify-center h-[300px] bg-secondary/20 rounded-lg border border-border/50 mx-6 mb-6">
-              <div className="text-muted-foreground flex flex-col items-center gap-2">
-                <Activity className="w-8 h-8 text-primary/40" />
-                <span>Chart visualization will be rendered here</span>
+              <div className="text-muted-foreground flex flex-col items-start gap-3">
+                <div className="flex items-center gap-2 text-foreground">
+                  <Activity className="w-8 h-8 text-primary/40" />
+                  <span className="font-medium">Live dashboard snapshot</span>
+                </div>
+                <div className="text-sm">
+                  Recommended jobs loaded: <span className="text-foreground font-medium">{recommendedJobs.length}</span>
+                </div>
+                <div className="text-sm">
+                  Mock interviews recorded: <span className="text-foreground font-medium">{stats[1]?.value ?? "—"}</span>
+                </div>
+                <div className="text-sm">
+                  Placement readiness: <span className="text-foreground font-medium">{stats[0]?.value ?? "—"}</span>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -152,7 +194,7 @@ export default function DashboardOverview() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
-                          {`${job.match_score ?? 85}%`}
+                          {job.match_score != null ? `${job.match_score}%` : "N/A"}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">

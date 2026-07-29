@@ -14,8 +14,18 @@ type NotificationLog = {
   created_at: string;
 };
 
+type NotificationTemplate = {
+  id: number;
+  name: string;
+  channel: string;
+  subject_template?: string | null;
+  body_template: string;
+  is_active: boolean;
+};
+
 export default function AdminNotificationsPage() {
   const [logs, setLogs] = useState<NotificationLog[]>([]);
+  const [templates, setTemplates] = useState<NotificationTemplate[]>([]);
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [channel, setChannel] = useState("email");
@@ -32,13 +42,34 @@ export default function AdminNotificationsPage() {
     }
   };
 
+  const fetchTemplates = async () => {
+    try {
+      const res = await api.get("/notifications/templates");
+      setTemplates(res.data);
+    } catch (error) {
+      console.error(error);
+      setTemplates([]);
+    }
+  };
+
   useEffect(() => {
+    const templateTimer = window.setTimeout(() => {
+      void fetchTemplates();
+    }, 0);
     if (activeTab === "logs") {
       const timer = window.setTimeout(() => {
         void fetchLogs();
       }, 0);
-      return () => window.clearTimeout(timer);
+      const refreshTimer = window.setInterval(() => {
+        void fetchLogs();
+      }, 15000);
+      return () => {
+        window.clearTimeout(templateTimer);
+        window.clearTimeout(timer);
+        window.clearInterval(refreshTimer);
+      };
     }
+    return () => window.clearTimeout(templateTimer);
   }, [activeTab]);
 
   const handleBroadcast = async (e: React.FormEvent) => {
@@ -172,30 +203,37 @@ export default function AdminNotificationsPage() {
               <History className="w-5 h-5 text-purple-400" />
               Active System Triggers
             </h2>
-            <div className="space-y-4">
-              {[
-                { title: 'Job Alerts', desc: 'Triggered when a new matching job is posted.', ch: ['email', 'push'], status: 'active' },
-                { title: 'Interview Reminders', desc: 'Triggered 24h before an AI interview.', ch: ['sms', 'email'], status: 'active' },
-                { title: 'Weekly Reports', desc: 'Summary of analytics sent every Sunday.', ch: ['email'], status: 'active' },
-                { title: 'Assessment Deadline', desc: 'Triggered 48h before an assessment closes.', ch: ['push'], status: 'active' }
-              ].map((trigger, idx) => (
-                <div key={idx} className="p-4 bg-[#13131a] rounded-xl border border-[#2a2a35] flex justify-between items-center">
+          <div className="space-y-4">
+              {templates.map((trigger) => (
+                <div key={trigger.id} className="p-4 bg-[#13131a] rounded-xl border border-[#2a2a35] flex justify-between items-center">
                   <div>
-                    <h3 className="font-semibold text-white">{trigger.title}</h3>
-                    <p className="text-sm text-gray-400">{trigger.desc}</p>
+                    <h3 className="font-semibold text-white">{trigger.name}</h3>
+                    <p className="text-sm text-gray-400">{trigger.body_template}</p>
                     <div className="flex gap-2 mt-2">
-                      {trigger.ch.map(c => (
-                        <span key={c} className="text-xs bg-[#2a2a35] px-2 py-1 rounded flex items-center gap-1 uppercase">
-                          {getChannelIcon(c)} {c}
+                      <span className="text-xs bg-[#2a2a35] px-2 py-1 rounded flex items-center gap-1 uppercase">
+                        {getChannelIcon(trigger.channel)} {trigger.channel}
+                      </span>
+                      {trigger.is_active ? (
+                        <span className="text-xs bg-green-500/10 text-green-400 px-2 py-1 rounded border border-green-500/20 uppercase">
+                          Active
                         </span>
-                      ))}
+                      ) : (
+                        <span className="text-xs bg-gray-500/10 text-gray-400 px-2 py-1 rounded border border-gray-500/20 uppercase">
+                          Inactive
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="px-3 py-1 bg-green-500/10 text-green-400 rounded-full text-xs font-medium border border-green-500/20">
-                    Active
+                    {trigger.channel}
                   </div>
                 </div>
               ))}
+              {templates.length === 0 && (
+                <div className="p-4 bg-[#13131a] rounded-xl border border-[#2a2a35] text-sm text-gray-400">
+                  No templates available.
+                </div>
+              )}
             </div>
           </div>
         </div>

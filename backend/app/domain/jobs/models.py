@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import Column, Integer, String, Boolean, Enum, ForeignKey, DateTime, Date, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
@@ -54,6 +56,66 @@ class Job(Base, AuditMixin):
     
     # Relationships
     bookmarks = relationship("JobBookmark", back_populates="job", cascade="all, delete")
+
+    @property
+    def provider(self) -> str:
+        return getattr(self.source, "value", self.source or JobSource.MANUAL.value)
+
+    @property
+    def provider_url(self) -> str | None:
+        return self.apply_link
+
+    @property
+    def company_url(self) -> str | None:
+        return self.apply_link if self.source == JobSource.COMPANY_PAGE else None
+
+    @property
+    def summary(self) -> str | None:
+        return self.ai_summary
+
+    @property
+    def ai_match_score(self) -> int | None:
+        return self.match_score
+
+    @property
+    def remote(self) -> bool:
+        text = " ".join(part for part in [self.location or "", self.employment_type or ""] if part).lower()
+        return any(token in text for token in ["remote", "work from home", "wfh"])
+
+    @property
+    def country(self) -> str | None:
+        text = (self.location or "").lower()
+        if any(token in text for token in ["india", "hyderabad", "bengaluru", "bangalore", "pune"]):
+            return "India"
+        if any(token in text for token in ["united states", "usa", "us"]):
+            return "United States"
+        if "uk" in text or "london" in text:
+            return "United Kingdom"
+        return None
+
+    @property
+    def freshness_score(self) -> int:
+        if not self.posted_date:
+            return 0
+        posted = self.posted_date
+        if posted.tzinfo is None:
+            posted = posted.replace(tzinfo=timezone.utc)
+        age_days = max((datetime.now(timezone.utc) - posted).days, 0)
+        return max(0, 100 - min(age_days * 10, 100))
+
+    @property
+    def fingerprint(self) -> str:
+        from app.domain.jobs.deduplication import job_fingerprint
+
+        return job_fingerprint(
+            {
+                "title": self.title,
+                "company": self.company,
+                "location": self.location,
+                "apply_url": self.apply_link,
+                "description": self.raw_description,
+            }
+        )
 
 
 class JobBookmark(Base, AuditMixin):

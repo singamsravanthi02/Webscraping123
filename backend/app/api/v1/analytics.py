@@ -264,6 +264,7 @@ def analytics_overview(
     job_searches = db.query(JobSearchHistory).count()
     recommendations = db.query(RecommendedJob).filter(RecommendedJob.is_current == True).count()
     ranking_scores = [row.rank_score for row in db.query(JobRanking).all() if row.rank_score is not None]
+    jobs_today = db.query(Job).filter(Job.created_at >= datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)).count()
     source_mix_counter = Counter()
     for row in db.query(Job.source).all():
         source = row[0]
@@ -314,10 +315,15 @@ def analytics_overview(
         "system_status": "Operational",
         "active_users": active_users,
         "jobs": db.query(Job).count(),
+        "jobs_today": jobs_today,
+        "job_searches": job_searches,
+        "job_recommendations": recommendations,
+        "avg_job_match_score": round(_mean(ranking_scores), 1),
         "documents": db.query(Document).count(),
         "pending_notifications": db.query(NotificationLog).filter(NotificationLog.status == NotificationStatus.PENDING).count(),
         "ai_requests": len(token_logs),
         "assessments_taken": assessment_count,
+        "job_source_mix": [{"name": source, "value": count} for source, count in source_mix_counter.most_common(5)],
         "ai_usage": [
             {"day": row["date"], "calls": row["count"]}
             for row in _daily_counts(token_log_counts, 7)

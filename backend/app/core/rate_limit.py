@@ -26,6 +26,7 @@ async def init_rate_limiter(app: FastAPI):
         await _redis_client.ping()
         logger.info("Rate limiter initialized.")
     except Exception as exc:
+        _redis_client = None
         logger.warning("Rate limiter unavailable: %s", exc)
 
 
@@ -41,16 +42,22 @@ def RateLimiterWrapper(times: int, seconds: int):
         if _redis_client is None:
             return None
 
-        client = request.client.host if request.client else "unknown"
-        key = f"ratelimit:{client}:{request.method}:{request.url.path}"
-        current = await _redis_client.incr(key)
-        if current == 1:
-            await _redis_client.expire(key, seconds)
-        if current > times:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too Many Requests",
-                headers={"Retry-After": str(seconds)},
-            )
+        try:
+            client = request.client.host if request.client else "unknown"
+            key = f"ratelimit:{client}:{request.method}:{request.url.path}"
+            current = await _redis_client.incr(key)
+            if current == 1:
+                await _redis_client.expire(key, seconds)
+            if current > times:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too Many Requests",
+                    headers={"Retry-After": str(seconds)},
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("Rate limiter unavailable during request: %s", exc)
+            return None
 
     return _check

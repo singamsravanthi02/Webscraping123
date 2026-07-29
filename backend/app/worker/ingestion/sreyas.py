@@ -1,54 +1,60 @@
-import httpx
+from __future__ import annotations
+
 import logging
-from bs4 import BeautifulSoup
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
 from .base import BaseKnowledgeAdapter
+from app.domain.learning.services.institutional_content import (
+    SREYAS_SOURCE_PAGES,
+    crawl_sreyas_course_content,
+)
 
 logger = logging.getLogger(__name__)
 
+
 class SreyasKnowledgeAdapter(BaseKnowledgeAdapter):
     def discover(self) -> List[str]:
-        # For V1, we target specific high-value public pages.
-        # In a full crawl, this would recursively find links within domain constraints.
-        return [
-            "https://sreyas.ac.in/academics/departments/cse/",
-            "https://sreyas.ac.in/placements/"
-        ]
-        
+        return list(SREYAS_SOURCE_PAGES.values())
+
     def fetch(self, url: str) -> str:
-        with httpx.Client(timeout=10.0) as client:
-            res = client.get(url)
-            res.raise_for_status()
-            return res.text
-            
+        from app.domain.learning.services.institutional_content import _fetch_text
+
+        return _fetch_text(url)
+
     def clean(self, raw_content: str) -> str:
-        soup = BeautifulSoup(raw_content, 'html.parser')
-        
-        # Remove nav, footer, scripts
-        for element in soup(["script", "style", "nav", "footer", "header", "aside"]):
-            element.decompose()
-            
-        text = soup.get_text(separator='\n')
-        
-        # Clean whitespace
-        lines = (line.strip() for line in text.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        text = '\n'.join(chunk for chunk in chunks if chunk)
-        
-        return text
-        
+        from app.domain.learning.services.institutional_content import _html_text
+
+        return _html_text(raw_content)
+
     def extract_metadata(self, url: str, raw_content: str) -> Dict[str, Any]:
-        soup = BeautifulSoup(raw_content, 'html.parser')
-        title = soup.title.string if soup.title else url
-        
-        dept = "General"
-        if "cse" in url.lower():
-            dept = "CSE"
-            
         return {
-            "title": title,
+            "title": url,
             "source": "SREYAS",
-            "department": dept,
+            "department": "Unknown",
             "language": "en",
-            "doc_type": "webpage"
+            "doc_type": "webpage",
         }
+
+    def sync(self) -> List[Dict[str, Any]]:
+        records, _failures = crawl_sreyas_course_content()
+        return [
+            {
+                "url": record.resource_url,
+                "raw_content": record.content,
+                "cleaned_content": record.content,
+                "metadata": {
+                    **(record.metadata or {}),
+                    "title": record.title,
+                    "source": record.source,
+                    "department": record.department,
+                    "semester": record.semester,
+                    "subject": record.subject,
+                    "unit": record.unit,
+                    "page_number": record.page_number,
+                    "source_page_url": record.source_page_url,
+                    "resource_url": record.resource_url,
+                    "google_drive_file_id": record.google_drive_file_id,
+                },
+            }
+            for record in records
+        ]

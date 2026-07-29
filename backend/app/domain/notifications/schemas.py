@@ -11,7 +11,7 @@ class NotificationTemplateBase(BaseModel):
     is_active: bool = True
 
 class NotificationTemplateCreate(NotificationTemplateBase):
-    ...
+    model_config = ConfigDict(extra="forbid")
 
 class NotificationTemplateResponse(NotificationTemplateBase):
     model_config = ConfigDict(from_attributes=True)
@@ -27,9 +27,14 @@ class NotificationLogResponse(BaseModel):
     template_name: str
     channel: NotificationChannel
     status: NotificationStatus
+    is_read: bool
     error_message: Optional[str] = None
     created_at: datetime
     sent_at: Optional[datetime] = None
+
+
+class NotificationInboxResponse(NotificationLogResponse):
+    context_data: Optional[Dict[str, Any]] = None
 
 class BroadcastRequest(BaseModel):
     subject: str
